@@ -68,13 +68,33 @@ def process_kbars(df):
         return None, None
     
     # 生成日K線：由於部分日期無交易資料，會產生缺失
+    # 生成日K線：由於部分日期無交易資料，會產生缺失
+    # 首先，使用現有的重採樣邏輯計算 High, Low, Close, Volume
     daily_k = df.resample('D').agg({
-        'Open': 'first',
         'High': 'max',
         'Low': 'min',
         'Close': 'last',
         'Volume': 'sum'
-    }).dropna()
+    })
+
+    # 根據成交量 > 0 的第一筆數據計算開盤價
+    def get_first_open_with_volume(group):
+        # 過濾成交量大於 0 的數據
+        entries_with_volume = group[group['Volume'] > 0]
+        if not entries_with_volume.empty:
+            # 返回第一筆有成交量數據的開盤價
+            return entries_with_volume['Open'].iloc[0]
+        else:
+            # 如果當天沒有任何成交量數據，則開盤價為 NaN
+            return pd.NA
+
+    daily_open_prices = df.groupby(df.index.date).apply(get_first_open_with_volume)
+    daily_open_prices.index = pd.to_datetime(daily_open_prices.index) # 將日期索引轉換回 datetime
+
+    # 將計算出的開盤價賦值給 daily_k DataFrame
+    daily_k['Open'] = daily_open_prices
+
+    daily_k = daily_k.dropna() # 刪除任何聚合值為 NaN 的行（例如，如果某天沒有數據，或開盤價沒有成交量）
     
     # 使用 ISO 年與週數分組，確保以實際有交易的日子來分組
     weekly_k = pd.DataFrame()
@@ -99,6 +119,9 @@ def process_kbars(df):
     
     # 移除可能的重複索引
     weekly_k = weekly_k[~weekly_k.index.duplicated(keep='first')]
+
+    # 重新排序 daily_k 的列為 OHLCV
+    daily_k = daily_k[['Open', 'High', 'Low', 'Close', 'Volume']]
     
     return daily_k, weekly_k
 

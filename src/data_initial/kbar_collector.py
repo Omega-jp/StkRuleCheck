@@ -33,6 +33,12 @@ def collect_and_save_kbars():
         print(f"正在收集股票 {stock_id} 的K線數據...")
         df = get_stock_kbars(stock_id)
         if df is not None:
+            # 保存原始K線數據
+            raw_file = os.path.join(data_output_dir, f"{stock_id}_Raw.csv")
+            df.index.name = 'ts' # 確保索引名稱為 'ts'
+            df.to_csv(raw_file)
+            print(f"原始K線數據已保存到：{raw_file}")
+
             daily_k, weekly_k = process_kbars(df)
 
             if daily_k is not None:

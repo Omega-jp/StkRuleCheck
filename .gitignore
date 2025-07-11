@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+venv/
+env/
+
+# Data directories
+Data/
+Data/kbar/
+
+# Operating System files
+.DS_Store
+.localized
+Thumbs.db

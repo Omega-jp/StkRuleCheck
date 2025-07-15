@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from src.data_initial.calculate_kd import calculate_kd
 from src.data_initial.calculate_macd import calculate_macd
+from src.data_initial.calculate_ma import calculate_ma
 
 def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
     """
@@ -42,7 +43,7 @@ def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
                     continue
 
                 # Define columns to remove if they exist
-                columns_to_remove = ['RSV', '%K', '%D', 'EMA_short', 'EMA_long', 'MACD', 'Signal', 'Histogram']
+                columns_to_remove = ['RSV', '%K', '%D', 'EMA_short', 'EMA_long', 'MACD', 'Signal', 'Histogram', 'MA_5', 'MA_10', 'MA_20', 'MA_60', 'MA_120']
                 df.drop(columns=[col for col in columns_to_remove if col in df.columns], inplace=True)
 
                 # Calculate KD
@@ -60,6 +61,13 @@ def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
                 macd_df['Signal'] = macd_df['Signal'].round(2)
                 macd_df['Histogram'] = macd_df['Histogram'].round(2)
                 df = pd.concat([df, macd_df], axis=1)
+
+                # Calculate MA
+                ma_df = calculate_ma(df.copy())
+                # Round MA values to two decimal places
+                for col in ma_df.columns:
+                    ma_df[col] = ma_df[col].round(2)
+                df = pd.concat([df, ma_df], axis=1)
 
                 # Save the updated DataFrame
                 output_file_path = os.path.join(output_dir, filename)

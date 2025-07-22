@@ -16,10 +16,10 @@ def calculate_macd(df, short_period=12, long_period=26, signal_period=9):
     df_copy = df.copy()
 
     # Calculate Short-term EMA
-    df_copy['EMA_short'] = df_copy['收盤價'].ewm(span=short_period, adjust=False).mean()
+    df_copy['EMA_short'] = df_copy['Close'].ewm(span=short_period, adjust=False).mean()
 
     # Calculate Long-term EMA
-    df_copy['EMA_long'] = df_copy['收盤價'].ewm(span=long_period, adjust=False).mean()
+    df_copy['EMA_long'] = df_copy['Close'].ewm(span=long_period, adjust=False).mean()
 
     # Calculate MACD Line
     df_copy['MACD'] = df_copy['EMA_short'] - df_copy['EMA_long']
@@ -35,7 +35,7 @@ def calculate_macd(df, short_period=12, long_period=26, signal_period=9):
 if __name__ == "__main__":
     # Example usage (for testing purposes)
     data = {
-        '收盤價': [10, 12, 15, 13, 16, 18, 17, 19, 22, 20, 25, 23, 26, 28, 27, 30, 32, 31, 34, 33]
+        'Close': [10, 12, 15, 13, 16, 18, 17, 19, 22, 20, 25, 23, 26, 28, 27, 30, 32, 31, 34, 33]
     }
     df_test = pd.DataFrame(data)
     macd_results = calculate_macd(df_test)

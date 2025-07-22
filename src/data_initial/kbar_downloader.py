@@ -8,8 +8,16 @@ from dotenv import load_dotenv
 # 載入環境變數
 load_dotenv()
 
-def get_stock_kbars(stock_id, max_retries=3, retry_delay=5):
-    """獲取指定股票的K線數據"""
+def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, retry_delay=5):
+    """獲取指定股票的K線數據
+    
+    Args:
+        stock_id (str): 股票代碼
+        start_date (datetime, optional): 起始日期。如果未指定，默認為當前日期往前200天
+        end_date (datetime, optional): 結束日期。如果未指定，默認為當前日期
+        max_retries (int): 最大重試次數
+        retry_delay (int): 重試延遲秒數
+    """
     for attempt in range(max_retries):
         try:
             api = sj.Shioaji(simulation=True)
@@ -27,9 +35,11 @@ def get_stock_kbars(stock_id, max_retries=3, retry_delay=5):
                 secret_key=str(userdata['SecretKey'])
             )
             
-            # 計算日期範圍（最近240天）
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=200)
+            # 設置日期範圍
+            if end_date is None:
+                end_date = datetime.now()
+            if start_date is None:
+                start_date = end_date - timedelta(days=200)
             
             contract = api.Contracts.Stocks[stock_id]
             kbars = api.kbars(contract, 

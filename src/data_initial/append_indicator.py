@@ -23,20 +23,11 @@ def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
             try:
                 df = pd.read_csv(file_path, index_col='ts', parse_dates=True)
 
-                # Rename columns to Chinese for consistency with calculate_kd and calculate_macd
-                df.rename(columns={
-                    'Open': '開盤價',
-                    'High': '最高價',
-                    'Low': '最低價',
-                    'Close': '收盤價',
-                    'Volume': '成交量'
-                }, inplace=True)
-
                 # Ensure necessary columns are numeric
-                for col in ['開盤價', '最高價', '最低價', '收盤價']:
+                for col in ['Open', 'High', 'Low', 'Close']:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col], errors='coerce')
-                df.dropna(subset=['開盤價', '最高價', '最低價', '收盤價'], inplace=True)
+                df.dropna(subset=['Open', 'High', 'Low', 'Close'], inplace=True)
 
                 if df.empty:
                     print(f"Skipping {filename}: DataFrame is empty after cleaning.")

@@ -5,6 +5,11 @@ import matplotlib.dates as mdates
 from matplotlib.patches import Rectangle
 from datetime import datetime, timedelta
 import os
+import mplfinance as mpf
+
+# 設置中文字體
+plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] # 或其他支持中文的字體
+plt.rcParams['axes.unicode_minus'] = False # 解決負號顯示問題
 
 def load_stock_data(stock_id, data_type='D'):
     """載入股票數據"""
@@ -54,12 +59,65 @@ def plot_candlestick_chart(df, stock_id, buy_signals=None, sell_signals=None):
     # 取最近180天的數據
     recent_df = df.tail(180)
     
-    # 設置圖表
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), 
-                                   gridspec_kw={'height_ratios': [3, 1]})
+    # 設置圖表樣式
+    mc = mpf.make_marketcolors(
+        up='red',
+        down='green',
+        edge='inherit',
+        wick='black',
+        volume='inherit'
+    )
+    s = mpf.make_mpf_style(marketcolors=mc)
     
-    # 繪製K線圖
-    plot_candlesticks(ax1, recent_df)
+    # 準備買入和賣出信號的標記
+    signals_plot = []
+    
+    # 添加移動平均線
+    for ma in ['ma5', 'ma10', 'ma20']:
+        if ma in recent_df.columns:
+            signals_plot.append(
+                mpf.make_addplot(recent_df[ma], type='line', width=1)
+            )
+    
+    # 添加買入信號
+    if buy_signals is not None:
+        buy_markers = [date for date in buy_signals if date in recent_df.index]
+        if buy_markers:
+            buy_signal_data = pd.Series(np.nan, index=recent_df.index)
+            buy_signal_data.loc[buy_markers] = recent_df.loc[buy_markers, 'Low'] * 0.99
+            signals_plot.append(
+                mpf.make_addplot(buy_signal_data, type='scatter',
+                                marker='^', markersize=100, color='red')
+            )
+    
+    # 添加賣出信號
+    if sell_signals is not None:
+        sell_markers = [date for date in sell_signals if date in recent_df.index]
+        if sell_markers:
+            sell_signal_data = pd.Series(np.nan, index=recent_df.index)
+            sell_signal_data.loc[sell_markers] = recent_df.loc[sell_markers, 'High'] * 1.01
+            signals_plot.append(
+                mpf.make_addplot(sell_signal_data, type='scatter',
+                                marker='v', markersize=100, color='blue')
+            )
+    
+    # 添加均線和信號
+    kwargs = {
+        'type': 'candle',
+        'style': s,
+        'volume': True,
+        'title': f'{stock_id} Daily K-Line Chart with Rule',
+        'ylabel': '價格',
+        'ylabel_lower': '成交量',
+        'figsize': (15, 10),
+        'addplot': signals_plot
+    }
+    
+    # 保存圖表
+    output_dir = 'output/chart'
+    os.makedirs(output_dir, exist_ok=True)
+    mpf.plot(recent_df, **kwargs, savefig=f'{output_dir}/{stock_id}_validation_chart.png')
+    print(f"圖表已保存至 {output_dir}/{stock_id}_validation_chart.png")
     
     # 繪製移動平均線
     plot_moving_averages(ax1, recent_df)
@@ -116,11 +174,7 @@ def plot_candlesticks(ax, df):
         # 設置顏色
         color = 'red' if close_price >= open_price else 'green'
         
-        # 繪製影線
-        ax.plot([x_idx, x_idx], [low_price, high_price],
-                color='black', linewidth=2, alpha=1.0)
-        
-        # 繪製實體
+        # 先繪製實體
         height = abs(close_price - open_price)
         bottom = min(open_price, close_price)
         
@@ -129,18 +183,22 @@ def plot_candlesticks(ax, df):
             height = (high_price - low_price) * 0.01
         
         rect = Rectangle((x_idx - width/2, bottom), width, height,
-                        facecolor=color, alpha=0.8, linewidth=0.5)
+                        facecolor=color, alpha=0.8, linewidth=0)
         ax.add_patch(rect)
+        
+        # 後繪製影線
+        ax.plot([x_idx, x_idx], [low_price, high_price],
+                color='black', linewidth=2, alpha=1.0)
 
 def plot_moving_averages(ax, df):
     """繪製移動平均線"""
     x_indices = np.arange(len(df))
-    if 'MA_5' in df.columns:
-        ax.plot(x_indices, df['MA_5'], label='MA5', color='blue', linewidth=1)
-    if 'MA_10' in df.columns:
-        ax.plot(x_indices, df['MA_10'], label='MA10', color='orange', linewidth=1)
-    if 'MA_20' in df.columns:
-        ax.plot(x_indices, df['MA_20'], label='MA20', color='purple', linewidth=1)
+    if 'ma5' in df.columns:
+        ax.plot(x_indices, df['ma5'], label='MA5', color='blue', linewidth=1)
+    if 'ma10' in df.columns:
+        ax.plot(x_indices, df['ma10'], label='MA10', color='orange', linewidth=1)
+    if 'ma20' in df.columns:
+        ax.plot(x_indices, df['ma20'], label='MA20', color='purple', linewidth=1)
 
 def plot_signals(ax, df, signals, signal_type):
     """繪製買賣信號"""
@@ -261,17 +319,17 @@ def validate_buy_rule(stock_id):
     buy_signals = []
     sell_signals = []
     
-    if 'MA_5' in df.columns and 'MA_10' in df.columns:
+    if 'ma5' in df.columns and 'ma10' in df.columns:
         print("找到移動平均線數據，計算交叉信號...")
         for i in range(1, len(df)):
             # 買入信號：MA5從下方穿越MA10
-            if (df.iloc[i]['MA_5'] > df.iloc[i]['MA_10'] and
-                df.iloc[i-1]['MA_5'] <= df.iloc[i-1]['MA_10']):
+            if (df.iloc[i]['ma5'] > df.iloc[i]['ma10'] and
+                df.iloc[i-1]['ma5'] <= df.iloc[i-1]['ma10']):
                 buy_signals.append(df.index[i])
             
             # 賣出信號：MA5從上方穿越MA10
-            if (df.iloc[i]['MA_5'] < df.iloc[i]['MA_10'] and
-                df.iloc[i-1]['MA_5'] >= df.iloc[i-1]['MA_10']):
+            if (df.iloc[i]['ma5'] < df.iloc[i]['ma10'] and
+                df.iloc[i-1]['ma5'] >= df.iloc[i-1]['ma10']):
                 sell_signals.append(df.index[i])
     else:
         print("未找到移動平均線數據，跳過信號計算")
@@ -281,6 +339,13 @@ def validate_buy_rule(stock_id):
     
     print(f"找到 {len(buy_signals)} 個買入信號")
     print(f"找到 {len(sell_signals)} 個賣出信號")
+    # 保存規則結果
+    from src.buyRule.breakthrough_ma import combine_buy_rules
+    rule_df = combine_buy_rules(df, [5,10,20,60])
+    output_dir = 'output/breakthrought_ma'
+    os.makedirs(output_dir, exist_ok=True)
+    rule_df.to_csv(f'{output_dir}/{stock_id}_D_Rule.csv', index=False)
+    print(f'已生成規則文件: {output_dir}/{stock_id}_D_Rule.csv')
 
 def debug_csv_structure(stock_id='2330', data_type='D'):
     """調試CSV文件結構"""

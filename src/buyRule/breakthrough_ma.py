@@ -13,9 +13,9 @@ def check_breakthrough_ma(df: pd.DataFrame) -> pd.DataFrame:
                       'san_yang_kai_tai_check' 為 'O' 表示滿足條件，'' 表示不滿足。
     """
     results = []
-    for index, row in df.iterrows():
-        date = row['date']
-        close = row['close']
+    for i, (idx, row) in enumerate(df.iterrows()):
+        date = idx.strftime('%Y-%m-%d')  # 從索引獲取日期
+        close = row['Close']
         ma5 = row['ma5']
         ma10 = row['ma10']
         ma20 = row['ma20']
@@ -27,9 +27,9 @@ def check_breakthrough_ma(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         # 獲取前一天的數據
-        if index > 0:
-            prev_row = df.iloc[index - 1]
-            prev_close = prev_row['close']
+        if i > 0:
+            prev_row = df.iloc[i - 1]
+            prev_close = prev_row['Close']
             prev_ma5 = prev_row['ma5']
             prev_ma10 = prev_row['ma10']
             prev_ma20 = prev_row['ma20']
@@ -60,7 +60,7 @@ def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list) -> pd.DataFrame:
     回傳滿足該條件的K棒日期。
 
     Args:
-        df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'close' 和指定均線列。
+        df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'Close' 和指定均線列。
         ma_periods (list): 包含需要檢查的均線週期的列表，例如 [5, 10, 20, 60]。
 
     Returns:
@@ -70,9 +70,9 @@ def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list) -> pd.DataFrame:
     results = []
     last_signal_was_o = False # Track if the last signal was 'O'
 
-    for index, row in df.iterrows():
-        date = row['date']
-        close = row['close']
+    for i, (idx, row) in enumerate(df.iterrows()):
+        date = idx.strftime('%Y-%m-%d')
+        close = row['Close']
         
         # 確保所有需要的均線數據都存在
         all_ma_present = True
@@ -88,9 +88,9 @@ def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list) -> pd.DataFrame:
             continue
 
         # 獲取前一天的數據
-        if index > 0:
-            prev_row = df.iloc[index - 1]
-            prev_close = prev_row['close']
+        if i > 0:
+            prev_row = df.iloc[i - 1]
+            prev_close = prev_row['Close']
             
             # 確保前一天的均線數據也存在
             prev_ma_present = True
@@ -122,13 +122,13 @@ def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list) -> pd.DataFrame:
                 crossover_any_ma = True
                 break # 只要突破任何一條均線就滿足條件
         
-            # Apply non-consecutive signal logic
-            if crossover_any_ma and not last_signal_was_o:
-                results.append({'date': date, 'si_hai_you_long_check': 'O'})
-                last_signal_was_o = True
-            else:
-                results.append({'date': date, 'si_hai_you_long_check': ''})
-                last_signal_was_o = False
+        # Apply non-consecutive signal logic
+        if crossover_any_ma and not last_signal_was_o:
+            results.append({'date': date, 'si_hai_you_long_check': 'O'})
+            last_signal_was_o = True
+        else:
+            results.append({'date': date, 'si_hai_you_long_check': ''})
+            last_signal_was_o = False
 
     return pd.DataFrame(results)
 
@@ -138,7 +138,7 @@ def combine_buy_rules(df: pd.DataFrame, four_seas_ma_periods: list) -> pd.DataFr
     結合三陽開泰和四海游龍兩種買入規則的檢查結果。
 
     Args:
-        df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'close', 'ma5', 'ma10', 'ma20' 列，
+        df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'Close', 'ma5', 'ma10', 'ma20' 列，
                            以及四海游龍所需的均線列。
         four_seas_ma_periods (list): 包含四海游龍需要檢查的均線週期的列表，例如 [5, 10, 20, 60]。
 

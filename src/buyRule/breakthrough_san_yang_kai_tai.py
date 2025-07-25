@@ -1,56 +1,36 @@
 import pandas as pd
 
-def check_breakthrough_ma(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    遍歷整個K線，如果當天收盤突破 5M or 10 MA or 20 Ma，
-    並且收盤價大等於所有均線5MA/10/20MA ，回傳滿足該條件的K棒日期。
-
-    Args:
-        df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'close', 'ma5', 'ma10', 'ma20', 'ma60' 列。
-
-    Returns:
-        pd.DataFrame: 包含 'date' 和 'san_yang_kai_tai_check' 列的DataFrame，
-                      'san_yang_kai_tai_check' 為 'O' 表示滿足條件，'' 表示不滿足。
-    """
+def check_san_yang_kai_tai(df: pd.DataFrame) -> pd.DataFrame:
     results = []
     for i, (idx, row) in enumerate(df.iterrows()):
-        date = idx.strftime('%Y-%m-%d')  # 從索引獲取日期
+        date = idx.strftime('%Y-%m-%d')
         close = row['Close']
         ma5 = row['ma5']
         ma10 = row['ma10']
         ma20 = row['ma20']
-        ma60 = row['ma60']
 
-        # 確保均線數據存在
-        if pd.isna(ma5) or pd.isna(ma10) or pd.isna(ma20) or pd.isna(ma60):
+        if pd.isna(ma5) or pd.isna(ma10) or pd.isna(ma20):
             results.append({'date': date, 'san_yang_kai_tai_check': ''})
             continue
-
-        # 獲取前一天的數據
         if i > 0:
             prev_row = df.iloc[i - 1]
             prev_close = prev_row['Close']
             prev_ma5 = prev_row['ma5']
             prev_ma10 = prev_row['ma10']
             prev_ma20 = prev_row['ma20']
-            prev_ma60 = prev_row['ma60']
         else:
-            # 第一天沒有前一天數據，不滿足突破條件
             results.append({'date': date, 'san_yang_kai_tai_check': ''})
             continue
-
-        # 檢查均線突破條件 (CrossOver)
-        crossover_ma5 = (close > ma5) and (prev_close <= prev_ma5)
-        crossover_ma10 = (close > ma10) and (prev_close <= prev_ma10)
-        crossover_ma20 = (close > ma20) and (prev_close <= prev_ma20)
-        crossover_ma60 = (close > ma60) and (prev_close <= prev_ma60)
-
-        if (crossover_ma5 or crossover_ma10 or crossover_ma20 or crossover_ma60) and \
-           (close >= ma5 and close >= ma10 and close >= ma20 and close >= ma60):
+        # CROSS OVER: 當天首次突破且站上
+        crossover_ma5 = (close >= ma5 and prev_close < prev_ma5)
+        crossover_ma10 = (close >= ma10 and prev_close < prev_ma10)
+        crossover_ma20 = (close >= ma20 and prev_close < prev_ma20)
+        breakthrough_any = crossover_ma5 or crossover_ma10 or crossover_ma20
+        above_all_ma = (close >= ma5) and (close >= ma10) and (close >= ma20)
+        if breakthrough_any and above_all_ma:
             results.append({'date': date, 'san_yang_kai_tai_check': 'O'})
         else:
             results.append({'date': date, 'san_yang_kai_tai_check': ''})
-
     return pd.DataFrame(results)
 
 

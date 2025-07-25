@@ -92,10 +92,10 @@
   - 顯示最近180天的數據。
   - K線圖樣式：上漲為紅色，下跌為綠色。
   - **附加圖表 (Addplot)**：
-    - 將 `ma5`, `ma10`, `ma20` 移動平均線繪製為線圖。
-    - 將買入信號（`buy_signals`）標記為向上的紅色箭頭 (`^`)。
-    - 將賣出信號（`sell_signals`）標記為向下的藍色箭頭 (`v`)。
+    - 將日K線數據內的OHLC, Volume, MA (5, 10, 20, 60), KD (K, D), MACD (MACD, Signal, Histogram) 全數繪製為Candlestick線圖或附加圖表。
+    - 根據Buy Rule CSV檔內的數量，第一個Rule標記為向上的紅色箭頭 (`^`)，第二個Rule標記為向上的藍色箭頭 (`^`)，後續Rule使用其他顏色。
   - **成交量**：在下方繪製成交量圖。
+  - **面板比例**：動態調整圖表面板比例以適應不同指標的顯示。
   - **輸出**：將生成的圖表保存為 PNG 圖片到 `output/chart/` 目錄。
 
 #### 3.2.3 股票列表讀取 (get_stock_list)
@@ -105,10 +105,10 @@
 - **功能**：模塊的核心協調函數。
 - **處理流程**：
   1. 載入指定股票的數據。
-  2. 計算買賣信號（目前實現為5日均線和10日均線的交叉策略）。
-  3. 調用 `plot_candlestick_chart` 繪製並保存結果圖表。
-  4. 調用 `src.buyRule.breakthrough_ma.combine_buy_rules` 生成詳細的規則結果。
-  5. 將規則結果保存為 CSV 文件到 `output/breakthrought_ma/` 目錄。
+  2. 調用 `src.buyRule.breakthrough_ma.combine_buy_rules` 生成詳細的各Rule的買進訊號結果。
+  3. 提取並組織買入信號，支持多個買入規則。
+  4. 調用 `plot_candlestick_chart` 繪製包含所有技術指標和買賣信號的K線圖，並保存結果圖表。
+  5. 將所有規則結果保存為 CSV 文件到 `output/breakthrought_ma/` 目錄。
 
 ### 3.3 執行入口
 - 當作為主程序執行時 (`if __name__ == "__main__"`)：

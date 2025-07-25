@@ -1,15 +1,8 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib.patches import Rectangle
-from datetime import datetime, timedelta
 import os
 import mplfinance as mpf
-
-# 設置中文字體
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] # 或其他支持中文的字體
-plt.rcParams['axes.unicode_minus'] = False # 解決負號顯示問題
+import matplotlib.pyplot as plt # Keep for font settings
 
 def load_stock_data(stock_id, data_type='D'):
     """載入股票數據"""
@@ -47,7 +40,7 @@ def load_stock_data(stock_id, data_type='D'):
         print(f"載入數據時發生錯誤: {e}")
         return None
 
-def plot_candlestick_chart(df, stock_id, buy_signals=None, sell_signals=None):
+def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=None):
     """繪製K線圖"""
     if df is None or df.empty:
         print("數據為空，無法繪製圖表")
@@ -70,38 +63,81 @@ def plot_candlestick_chart(df, stock_id, buy_signals=None, sell_signals=None):
     s = mpf.make_mpf_style(marketcolors=mc)
     
     # 準備買入和賣出信號的標記
-    signals_plot = []
-    
-    # 添加移動平均線
-    for ma in ['ma5', 'ma10', 'ma20']:
+    addplots = []
+    panels_to_include = [0, 1] # Always include main and volume (panel 0 and 1)
+    panel_ratios_values = [6, 2] # Ratios for main and volume
+
+    # Add moving averages
+    for ma in ['ma5', 'ma10', 'ma20', 'ma60']:
         if ma in recent_df.columns:
-            signals_plot.append(
-                mpf.make_addplot(recent_df[ma], type='line', width=1)
+            addplots.append(
+                mpf.make_addplot(recent_df[ma], type='line', width=1, panel=0)
             )
-    
-    # 添加買入信號
-    if buy_signals is not None:
-        buy_markers = [date for date in buy_signals if date in recent_df.index]
-        if buy_markers:
-            buy_signal_data = pd.Series(np.nan, index=recent_df.index)
-            buy_signal_data.loc[buy_markers] = recent_df.loc[buy_markers, 'Low'] * 0.99
-            signals_plot.append(
-                mpf.make_addplot(buy_signal_data, type='scatter',
-                                marker='^', markersize=100, color='red')
+
+    # Add KD indicator
+    if '%K' in recent_df.columns and '%D' in recent_df.columns:
+        # Check if there's actual non-NaN data for KD in the recent_df slice
+        if recent_df[['%K', '%D']].notnull().sum().sum() > 0:
+            kd_panel_idx = len(panels_to_include) # Next available panel index
+            addplots.append(
+                mpf.make_addplot(recent_df[['%K', '%D']], panel=kd_panel_idx, ylabel='KD', width=1)
             )
+            panels_to_include.append(kd_panel_idx)
+            panel_ratios_values.append(2) # Add ratio for KD panel
+        else:
+            print("KD data is all NaN for recent_df, skipping KD plot.")
     
-    # 添加賣出信號
+    # Add MACD indicator
+    if 'MACD' in recent_df.columns and 'Signal' in recent_df.columns and 'Histogram' in recent_df.columns:
+        # Check if there's actual non-NaN data for MACD in the recent_df slice
+        if recent_df[['MACD', 'Signal', 'Histogram']].notnull().sum().sum() > 0:
+            macd_panel_idx = len(panels_to_include) # Next available panel index
+            addplots.append(
+                mpf.make_addplot(recent_df[['MACD', 'Signal']], panel=macd_panel_idx, ylabel='MACD', width=1)
+            )
+            addplots.append(
+                mpf.make_addplot(recent_df['Histogram'], type='bar', panel=macd_panel_idx, color='red', width=0.7, alpha=0.7)
+            )
+            panels_to_include.append(macd_panel_idx)
+            panel_ratios_values.append(2) # Add ratio for MACD panel
+        else:
+            print("MACD data is all NaN for recent_df, skipping MACD plot.")
+
+    # Add buy signals (supports multiple rules)
+    if buy_signals_dict is not None:
+        buy_colors = ['red', 'blue', 'green', 'purple']
+        marker_size = 100
+        
+        for i, (rule_name, buy_signals) in enumerate(buy_signals_dict.items()):
+            buy_markers = [date for date in buy_signals if date in recent_df.index]
+            if buy_markers:
+                buy_signal_data = pd.Series(np.nan, index=recent_df.index)
+                buy_signal_data.loc[buy_markers] = recent_df.loc[buy_markers, 'Low'] * 0.99
+                
+                # 修改三陽開泰的箭頭顏色和樣式
+                if rule_name == '三陽開泰':
+                    color = 'orange'
+                    marker = '^'
+                else:
+                    color = buy_colors[i % len(buy_colors)]
+                    marker = '^'
+                
+                addplots.append(
+                    mpf.make_addplot(buy_signal_data, type='scatter',
+                                    marker=marker, markersize=marker_size, color=color)
+                )
+    
+    # Add sell signals
     if sell_signals is not None:
         sell_markers = [date for date in sell_signals if date in recent_df.index]
         if sell_markers:
             sell_signal_data = pd.Series(np.nan, index=recent_df.index)
             sell_signal_data.loc[sell_markers] = recent_df.loc[sell_markers, 'High'] * 1.01
-            signals_plot.append(
+            addplots.append(
                 mpf.make_addplot(sell_signal_data, type='scatter',
                                 marker='v', markersize=100, color='blue')
             )
     
-    # 添加均線和信號
     kwargs = {
         'type': 'candle',
         'style': s,
@@ -110,7 +146,8 @@ def plot_candlestick_chart(df, stock_id, buy_signals=None, sell_signals=None):
         'ylabel': '價格',
         'ylabel_lower': '成交量',
         'figsize': (15, 10),
-        'addplot': signals_plot
+        'addplot': addplots,
+        'panel_ratios': tuple(panel_ratios_values)
     }
     
     # 保存圖表
@@ -119,172 +156,6 @@ def plot_candlestick_chart(df, stock_id, buy_signals=None, sell_signals=None):
     mpf.plot(recent_df, **kwargs, savefig=f'{output_dir}/{stock_id}_validation_chart.png')
     print(f"圖表已保存至 {output_dir}/{stock_id}_validation_chart.png")
     
-    # 繪製移動平均線
-    plot_moving_averages(ax1, recent_df)
-    
-    # 繪製買賣信號
-    if buy_signals is not None:
-        plot_signals(ax1, recent_df, buy_signals, 'buy')
-    if sell_signals is not None:
-        plot_signals(ax1, recent_df, sell_signals, 'sell')
-    
-    # 繪製成交量
-    plot_volume(ax2, recent_df)
-    
-    # 設置圖表格式
-    format_chart(ax1, ax2, stock_id, recent_df.index)
-    
-    plt.tight_layout()
-    plt.savefig(f'output/chart/{stock_id}_validation_chart.png')
-    plt.close(fig) # Close the figure to free memory
-
-def plot_candlesticks(ax, df):
-    """繪製K線"""
-    # 確保數據列存在
-    required_cols = ['Open', 'High', 'Low', 'Close']
-    if not all(col in df.columns for col in required_cols):
-        print("缺少必要的OHLC數據列")
-        return
-    
-    # 使用數值索引作為X軸
-    x_indices = np.arange(len(df))
-    
-    # 使用numpy數組提高效率
-    opens = df['Open'].values
-    highs = df['High'].values
-    lows = df['Low'].values
-    closes = df['Close'].values
-    
-    # 計算K棒寬度
-    if len(x_indices) > 1:
-        width = min(0.6, (x_indices[1] - x_indices[0]) * 0.8)
-    else:
-        width = 0.6
-    
-    for i, x_idx in enumerate(x_indices):
-        open_price = opens[i]
-        high_price = highs[i]
-        low_price = lows[i]
-        close_price = closes[i]
-        
-        # 跳過無效數據
-        if pd.isna(open_price) or pd.isna(high_price) or pd.isna(low_price) or pd.isna(close_price):
-            continue
-        
-        # 設置顏色
-        color = 'red' if close_price >= open_price else 'green'
-        
-        # 先繪製實體
-        height = abs(close_price - open_price)
-        bottom = min(open_price, close_price)
-        
-        # 如果開盤價等於收盤價，設置最小高度
-        if height == 0:
-            height = (high_price - low_price) * 0.01
-        
-        rect = Rectangle((x_idx - width/2, bottom), width, height,
-                        facecolor=color, alpha=0.8, linewidth=0)
-        ax.add_patch(rect)
-        
-        # 後繪製影線
-        ax.plot([x_idx, x_idx], [low_price, high_price],
-                color='black', linewidth=2, alpha=1.0)
-
-def plot_moving_averages(ax, df):
-    """繪製移動平均線"""
-    x_indices = np.arange(len(df))
-    if 'ma5' in df.columns:
-        ax.plot(x_indices, df['ma5'], label='MA5', color='blue', linewidth=1)
-    if 'ma10' in df.columns:
-        ax.plot(x_indices, df['ma10'], label='MA10', color='orange', linewidth=1)
-    if 'ma20' in df.columns:
-        ax.plot(x_indices, df['ma20'], label='MA20', color='purple', linewidth=1)
-
-def plot_signals(ax, df, signals, signal_type):
-    """繪製買賣信號"""
-    if signals is None or len(signals) == 0:
-        return
-    
-    color = 'red' if signal_type == 'buy' else 'blue'
-    marker = '^' if signal_type == 'buy' else 'v'
-    label = '買入信號' if signal_type == 'buy' else '賣出信號'
-    
-    # 確保使用正確的欄位名稱
-    close_col = 'Close' if 'Close' in df.columns else '收盤價'
-    
-    # Create a mapping from date to numerical index
-    date_to_idx = {date: i for i, date in enumerate(df.index)}
-
-    for signal_date in signals:
-        if signal_date in df.index:
-            x_idx = date_to_idx[signal_date]
-            price = df.loc[signal_date, close_col]
-            ax.scatter(x_idx, price, color=color, marker=marker,
-                      s=100, label=label, zorder=5)
-
-def plot_volume(ax, df):
-    """繪製成交量"""
-    # 確保使用正確的欄位名稱
-    volume_col = 'Volume' if 'Volume' in df.columns else '成交量'
-    close_col = 'Close' if 'Close' in df.columns else '收盤價'
-    open_col = 'Open' if 'Open' in df.columns else '開盤價'
-    
-    # 清理成交量數據
-    volume_data = df[volume_col].fillna(0)
-    
-    # 根據漲跌設置顏色
-    colors = ['red' if close > open else 'green' 
-              for close, open in zip(df[close_col], df[open_col])]
-    
-    x_indices = np.arange(len(df))
-    # 繪製成交量柱狀圖
-    ax.bar(x_indices, volume_data, color=colors, alpha=0.7, width=0.8)
-    
-    # 設置成交量軸
-    ax.set_ylabel('成交量')
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1000:.0f}K'))
-
-def format_chart(ax1, ax2, stock_id, dates):
-    """格式化圖表"""
-    # 設置主圖表
-    ax1.set_title(f'{stock_id} Daily K-Line Chart with Rule', fontsize=16, fontweight='bold')
-    ax1.set_ylabel('價格')
-    ax1.legend(loc='upper left')
-    ax1.grid(True, alpha=0.3)
-    
-    # 設置x軸格式
-    num_days = len(dates)
-    if num_days > 0:
-        # Determine appropriate interval for ticks
-        if num_days > 180: # More than 6 months, show monthly
-            tick_interval = 30
-        elif num_days > 90: # 3-6 months, show every 2 weeks
-            tick_interval = 14
-        else: # Less than 3 months, show weekly
-            tick_interval = 7
-
-        # Get indices for ticks
-        tick_indices = np.arange(0, num_days, tick_interval)
-        if num_days - 1 not in tick_indices: # Ensure last date is included
-            tick_indices = np.append(tick_indices, num_days - 1)
-
-        # Get corresponding dates for labels
-        tick_labels = [dates[i].strftime('%Y-%m-%d') for i in tick_indices]
-
-        ax1.set_xticks(tick_indices)
-        ax2.set_xticks(tick_indices)
-        ax2.set_xticklabels(tick_labels) # Only set for the bottom chart
-    
-    # 旋轉日期標籤
-    ax1.tick_params(axis='x', rotation=45)
-    ax2.tick_params(axis='x', rotation=45)
-    
-    # 隱藏上方圖表的x軸標籤
-    ax1.set_xticklabels([])
-    
-    # 設置成交量圖表
-    ax2.set_xlabel('日期')
-    ax2.grid(True, alpha=0.3)
 
 def get_stock_list(file_path='config/stklist.cfg'):
     """從配置文件讀取股票代碼列表"""
@@ -303,7 +174,6 @@ def get_stock_list(file_path='config/stklist.cfg'):
     return stock_list
 
 def validate_buy_rule(stock_id):
-    """驗證買入規則的主函數"""
     print(f"正在驗證股票 {stock_id} 的買入規則...")
     
     # 載入數據
@@ -314,35 +184,26 @@ def validate_buy_rule(stock_id):
     print(f"成功載入數據，共 {len(df)} 筆記錄")
     print(f"數據欄位: {list(df.columns)}")
     
-    # 這裡可以添加您的買入規則邏輯
-    # 例如：簡單的移動平均交叉策略
-    buy_signals = []
-    sell_signals = []
+    # 调用 三阳开泰 的规则检查
+    from src.buyRule.breakthrough_san_yang_kai_tai import check_san_yang_kai_tai
+    # 将规则检查调用改为仅传递 df
+    rule_df = check_san_yang_kai_tai(df)
     
-    if 'ma5' in df.columns and 'ma10' in df.columns:
-        print("找到移動平均線數據，計算交叉信號...")
-        for i in range(1, len(df)):
-            # 買入信號：MA5從下方穿越MA10
-            if (df.iloc[i]['ma5'] > df.iloc[i]['ma10'] and
-                df.iloc[i-1]['ma5'] <= df.iloc[i-1]['ma10']):
-                buy_signals.append(df.index[i])
-            
-            # 賣出信號：MA5從上方穿越MA10
-            if (df.iloc[i]['ma5'] < df.iloc[i]['ma10'] and
-                df.iloc[i-1]['ma5'] >= df.iloc[i-1]['ma10']):
-                sell_signals.append(df.index[i])
-    else:
-        print("未找到移動平均線數據，跳過信號計算")
+    # 提取買入信號，並按規則名稱組織
+    buy_signals_dict = {}
     
-    # 繪製圖表
-    plot_candlestick_chart(df, stock_id, buy_signals, sell_signals)
+    # 處理三陽開泰規則 (第一個規則 - 橙色箭頭)
+    san_yang_dates = []
+    for i, row in rule_df.iterrows():
+        if row['san_yang_kai_tai_check'] == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            san_yang_dates.append(date_obj)
+    buy_signals_dict['三陽開泰'] = san_yang_dates
     
-    print(f"找到 {len(buy_signals)} 個買入信號")
-    print(f"找到 {len(sell_signals)} 個賣出信號")
+    plot_candlestick_chart(df, stock_id, buy_signals_dict)
+    
     # 保存規則結果
-    from src.buyRule.breakthrough_ma import combine_buy_rules
-    rule_df = combine_buy_rules(df, [5,10,20,60])
-    output_dir = 'output/breakthrought_ma'
+    output_dir = 'output/breakthrough_san_yang_kai_tai'
     os.makedirs(output_dir, exist_ok=True)
     rule_df.to_csv(f'{output_dir}/{stock_id}_D_Rule.csv', index=False)
     print(f'已生成規則文件: {output_dir}/{stock_id}_D_Rule.csv')

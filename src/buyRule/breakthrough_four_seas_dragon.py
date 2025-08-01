@@ -2,70 +2,29 @@ import pandas as pd
 
 # 四海游龍規則檢查函數
 
-def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list, stock_id: str) -> None:
+def check_four_seas_dragon(df: pd.DataFrame, ma_periods: list, stock_id: str) -> pd.DataFrame:
+    """
+    四海游龍規則：與三陽開泰相同邏輯，只要滿足三陽開泰突破條件，且當天收盤價站上最後一個均線（例如60MA），則標記信號 'O'
+    """
+    from .breakthrough_san_yang_kai_tai import check_san_yang_kai_tai
+
+    # 先取得三陽開泰規則結果
+    san_df = check_san_yang_kai_tai(df)
+
+    confirm_period = ma_periods[-1]
+    confirm_col = f"ma{confirm_period}"
+
     results = []
-    last_signal_was_o = False # Track if the last signal was 'O'
-
-    for i, (idx, row) in enumerate(df.iterrows()):
-        date = idx.strftime('%Y-%m-%d')
-        close = row['Close']
-
-        # 確保所有需要的均線數據都存在
-        all_ma_present = True
-        for period in ma_periods:
-            ma_col = f'ma{period}'
-            if ma_col not in df.columns or pd.isna(row[ma_col]):
-                all_ma_present = False
-                break
-
-        if not all_ma_present:
-            results.append({'date': date, 'si_hai_you_long_check': ''})
-            last_signal_was_o = False # Reset for no signal
-            continue
-
-        # 獲取前一天的數據
-        if i > 0:
-            prev_row = df.iloc[i - 1]
-            prev_close = prev_row['Close']
-
-            # 確保前一天的均線數據也存在
-            prev_ma_present = True
-            for period in ma_periods:
-                ma_col = f'ma{period}'
-                if ma_col not in prev_row or pd.isna(prev_row[ma_col]):
-                    prev_ma_present = False
-                    break
-
-            if not prev_ma_present:
+    for _, row in san_df.iterrows():
+        date = row['date']
+        # 當三陽開泰有信號，且收盤價站上確認線，則四海游龍也標記
+        if row.get('san_yang_kai_tai_check') == 'O' and date in df.index:
+            close = df.loc[date, 'Close']
+            if 'ma' + str(confirm_period) in df.columns and close >= df.loc[date, confirm_col]:
+                results.append({'date': date, 'si_hai_you_long_check': 'O'})
+            else:
                 results.append({'date': date, 'si_hai_you_long_check': ''})
-                last_signal_was_o = False # Reset for no signal
-                continue
-        else:
-            # 第一天沒有前一天數據
-            results.append({'date': date, 'si_hai_you_long_check': ''})
-            last_signal_was_o = False # Reset for no signal
-            continue
-
-        # 檢查均線突破條件
-        crossover_any_ma = False
-        for period in ma_periods:
-            ma_col = f'ma{period}'
-
-            current_ma = row[ma_col]
-            prev_ma = prev_row[ma_col]
-
-            if (close > current_ma) and (prev_close <= prev_ma):
-                crossover_any_ma = True
-                break
-
-        # Apply non-consecutive signal logic
-        if crossover_any_ma and not last_signal_was_o:
-            results.append({'date': date, 'si_hai_you_long_check': 'O'})
-            last_signal_was_o = True
         else:
             results.append({'date': date, 'si_hai_you_long_check': ''})
-            last_signal_was_o = False
 
-    # 將結果寫入CSV文件
-    results_df = pd.DataFrame(results)
-    results_df.to_csv(f"{stock_id}_four_seas_dragon.csv", index=False)
+    return pd.DataFrame(results)

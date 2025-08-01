@@ -1,14 +1,14 @@
 import pandas as pd
 
-def calculate_macd(df, short_period=12, long_period=26, signal_period=9):
+def calculate_macd(df, short_period=10, long_period=20, signal_period=10):
     """
     Calculate Moving Average Convergence Divergence (MACD) values.
 
     Args:
         df (pd.DataFrame): DataFrame with a 'Close' column (收盤價).
-        short_period (int): Period for the short-term EMA (default 12).
-        long_period (int): Period for the long-term EMA (default 26).
-        signal_period (int): Period for the signal line EMA (default 9).
+        short_period (int): Period for the short-term EMA (default 10).
+        long_period (int): Period for the long-term EMA (default 20).
+        signal_period (int): Period for the signal line EMA (default 10).
 
     Returns:
         pd.DataFrame: DataFrame with 'EMA_short', 'EMA_long', 'MACD', 'Signal', 'Histogram' columns.

@@ -3,6 +3,9 @@ import numpy as np
 import os
 import mplfinance as mpf
 import matplotlib.pyplot as plt # Keep for font settings
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
 
 def load_stock_data(stock_id, data_type='D'):
     """載入股票數據"""
@@ -57,7 +60,7 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
         up='red',
         down='green',
         edge='inherit',
-        wick='black',
+        wick='inherit',
         volume='inherit'
     )
     s = mpf.make_mpf_style(marketcolors=mc)
@@ -92,8 +95,15 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
         # Check if there's actual non-NaN data for MACD in the recent_df slice
         if recent_df[['MACD', 'Signal', 'Histogram']].notnull().sum().sum() > 0:
             macd_panel_idx = len(panels_to_include) # Next available panel index
+            # Calculate symmetrical Y-axis limits for MACD panel
+            macd_abs_max = max(
+                abs(recent_df['MACD'].min()), abs(recent_df['MACD'].max()),
+                abs(recent_df['Signal'].min()), abs(recent_df['Signal'].max()),
+                abs(recent_df['Histogram'].min()), abs(recent_df['Histogram'].max())
+            )
+            macd_ylim = (-macd_abs_max * 1.1, macd_abs_max * 1.1)
             addplots.append(
-                mpf.make_addplot(recent_df[['MACD', 'Signal']], panel=macd_panel_idx, ylabel='MACD', width=1)
+                mpf.make_addplot(recent_df[['MACD', 'Signal']], panel=macd_panel_idx, ylabel='MACD', width=1, ylim=macd_ylim)
             )
             addplots.append(
                 mpf.make_addplot(recent_df['Histogram'], type='bar', panel=macd_panel_idx, color='red', width=0.7, alpha=0.7)
@@ -112,7 +122,14 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
             buy_markers = [date for date in buy_signals if date in recent_df.index]
             if buy_markers:
                 buy_signal_data = pd.Series(np.nan, index=recent_df.index)
-                buy_signal_data.loc[buy_markers] = recent_df.loc[buy_markers, 'Low'] * 0.99
+                # 根據規則名稱設置不同的垂直位置
+                if rule_name == '三陽開泰':
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
+                elif rule_name == '四海游龍':
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.97
+                else:
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
+                buy_signal_data.loc[buy_markers] = y_position
                 
                 # 修改三陽開泰的箭頭顏色和樣式
                 if rule_name == '三陽開泰':
@@ -165,10 +182,13 @@ def get_stock_list(file_path='config/stklist.cfg'):
         return stock_list
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
+            next(f)  # 跳過標頭行
             for line in f:
-                stock_id = line.strip()
-                if stock_id:
-                    stock_list.append(stock_id)
+                parts = line.strip().split(',')
+                if parts:
+                    stock_id = parts[0].strip()
+                    if stock_id:
+                        stock_list.append(stock_id)
     except Exception as e:
         print(f"讀取股票列表時發生錯誤: {e}")
     return stock_list
@@ -185,14 +205,24 @@ def validate_buy_rule(stock_id):
     print(f"數據欄位: {list(df.columns)}")
     
     # 调用 三阳开泰 的规则检查
-    from src.buyRule.breakthrough_san_yang_kai_tai import check_san_yang_kai_tai
-    # 将规则检查调用改为仅传递 df
-    rule_df = check_san_yang_kai_tai(df)
+    from .buyRule.breakthrough_san_yang_kai_tai import check_san_yang_kai_tai
+    from .buyRule.breakthrough_four_seas_dragon import check_four_seas_dragon
+    from .buyRule.macd_golden_cross_above_zero import check_macd_golden_cross_above_zero
+    from .buyRule.macd_golden_cross_above_zero_positive_histogram import check_macd_golden_cross_above_zero_positive_histogram
+    san_yang_rule_df = check_san_yang_kai_tai(df)
+    four_seas_dragon_rule_df = check_four_seas_dragon(df, [5, 10, 20, 60], stock_id)
+    macd_rule_df = check_macd_golden_cross_above_zero(df)
+    macd_positive_hist_rule_df = check_macd_golden_cross_above_zero_positive_histogram(df)
+    
+    # 合併規則結果
+    rule_df = pd.merge(san_yang_rule_df, four_seas_dragon_rule_df, on='date', how='outer')
+    rule_df = pd.merge(rule_df, macd_rule_df, on='date', how='outer')
+    rule_df = pd.merge(rule_df, macd_positive_hist_rule_df, on='date', how='outer')
     
     # 提取買入信號，並按規則名稱組織
     buy_signals_dict = {}
     
-    # 處理三陽開泰規則 (第一個規則 - 橙色箭頭)
+    # 處理三陽開泰規則
     san_yang_dates = []
     for i, row in rule_df.iterrows():
         if row['san_yang_kai_tai_check'] == 'O':
@@ -200,10 +230,34 @@ def validate_buy_rule(stock_id):
             san_yang_dates.append(date_obj)
     buy_signals_dict['三陽開泰'] = san_yang_dates
     
+    # 處理四海游龍規則
+    four_seas_dates = []
+    for i, row in rule_df.iterrows():
+        if row.get('si_hai_you_long_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            four_seas_dates.append(date_obj)
+    buy_signals_dict['四海游龍'] = four_seas_dates
+    
+    # 處理MACD黃金交叉零軸上規則
+    macd_dates = []
+    for i, row in rule_df.iterrows():
+        if row.get('macd_golden_cross_above_zero_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            macd_dates.append(date_obj)
+    buy_signals_dict['MACD黃金交叉零軸上'] = macd_dates
+
+    # 處理MACD黃金交叉零軸上正柱規則
+    macd_positive_hist_dates = []
+    for i, row in rule_df.iterrows():
+        if row.get('macd_golden_cross_above_zero_positive_histogram_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            macd_positive_hist_dates.append(date_obj)
+    buy_signals_dict['MACD黃金交叉零軸上正柱'] = macd_positive_hist_dates
+    
     plot_candlestick_chart(df, stock_id, buy_signals_dict)
     
     # 保存規則結果
-    output_dir = 'output/breakthrough_san_yang_kai_tai'
+    output_dir = 'output/buy_rules'
     os.makedirs(output_dir, exist_ok=True)
     rule_df.to_csv(f'{output_dir}/{stock_id}_D_Rule.csv', index=False)
     print(f'已生成規則文件: {output_dir}/{stock_id}_D_Rule.csv')
@@ -241,6 +295,7 @@ if __name__ == "__main__":
     output_dir = 'output/chart'
     os.makedirs(output_dir, exist_ok=True)
     
+    validate_buy_rule('00894')
     # 獲取股票列表並逐一驗證
     stock_ids = get_stock_list()
     if not stock_ids:

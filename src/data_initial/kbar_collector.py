@@ -20,10 +20,13 @@ def collect_and_save_kbars():
     stock_ids = []
     try:
         with open(stk_list_path, 'r', encoding='utf-8') as f:
+            next(f)  # 跳過標頭行
             for line in f:
-                stock_id = line.strip()
-                if stock_id:
-                    stock_ids.append(stock_id)
+                parts = line.strip().split(',')
+                if parts:
+                    stock_id = parts[0].strip()
+                    if stock_id:
+                        stock_ids.append(stock_id)
     except FileNotFoundError:
         print(f"錯誤：找不到股票清單文件 '{stk_list_path}'。")
         return
@@ -53,15 +56,19 @@ def collect_and_save_kbars():
                 
                 # 檢查數據是否需要更新
                 days_diff = (end_date - last_date).days
-                if days_diff <= 1:  # 數據是最新的
+                
+                # 檢查數據是否需要更新
+                if last_date.date() >= end_date.date():  # 數據是最新的
                     print(f"股票 {stock_id} 的數據已是最新")
                     need_download = False
-                elif days_diff > DOWNLOAD_DAYS:  # 數據太舊
-                    print(f"股票 {stock_id} 的數據已過期，需要重新下載")
-                    start_date = None  # 重新下載全部數據
-                else:  # 需要補充數據
-                    print(f"股票 {stock_id} 的數據需要更新，從 {last_date.date()} 更新到今天")
-                    start_date = last_date  # 從最後一天開始更新
+                else:
+                    need_download = True
+                    if days_diff > DOWNLOAD_DAYS:  # 數據太舊
+                        print(f"股票 {stock_id} 的數據已過期，需要重新下載")
+                        start_date = None  # 重新下載全部數據
+                    else:  # 需要補充數據
+                        print(f"股票 {stock_id} 的數據需要更新，從 {last_date.date() + timedelta(days=1)} 更新到今天")
+                        start_date = last_date + timedelta(days=1)  # 從最後一天的下一天開始更新
             except Exception as e:
                 print(f"讀取現有數據時發生錯誤：{e}，將重新下載")
                 start_date = None

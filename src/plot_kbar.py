@@ -40,10 +40,11 @@ def plot_k_charts(stock_id):
     histogram_ylim_daily = (-histogram_abs_max_daily * 1.1, histogram_abs_max_daily * 1.1)
 
     apds_daily = [
+
         mpf.make_addplot(df_daily[['K', 'D']], panel=2, ylabel='KD'),
         mpf.make_addplot(df_daily['MACD'], panel=3, color='red', ylabel='MACD', ylim=macd_ylim_daily),
         mpf.make_addplot(df_daily['Signal'], panel=3, color='blue'),
-        mpf.make_addplot(df_daily['Histogram'], type='bar', panel=3, color='gray', width=0.7, alpha=0.5)
+        mpf.make_addplot(df_daily['Histogram'], type='bar', panel=3, color=['green' if h >= 0 else 'red' for h in df_daily['Histogram']], width=0.7, alpha=0.5)
     ]
     mpf.plot(df_daily, type='candle', style='yahoo', title=f'{stock_id} Daily K-Line Chart',
              ylabel='Price', ylabel_lower='Volume', savefig=daily_chart_path, mav=(5, 10, 20, 60, 120),
@@ -86,10 +87,11 @@ def plot_k_charts(stock_id):
     histogram_ylim_weekly = (-histogram_abs_max_weekly * 1.1, histogram_abs_max_weekly * 1.1)
 
     apds_weekly = [
+
         mpf.make_addplot(df_weekly[['%K', '%D']], panel=2, ylabel='KD'),
         mpf.make_addplot(df_weekly['MACD'], panel=3, color='red', ylabel='MACD', ylim=macd_ylim_weekly),
         mpf.make_addplot(df_weekly['Signal'], panel=3, color='blue'),
-        mpf.make_addplot(df_weekly['Histogram'], type='bar', panel=3, color='gray', width=0.7, alpha=0.5)
+        mpf.make_addplot(df_weekly['Histogram'], type='bar', panel=3, color=['green' if h >= 0 else 'red' for h in df_weekly['Histogram']], width=0.7, alpha=0.5)
     ]
     mpf.plot(df_weekly, type='candle', style='yahoo', title=f'{stock_id} Weekly K-Line Chart',
              ylabel='Price', ylabel_lower='Volume', savefig=weekly_chart_path, mav=(5, 10, 20, 60, 120),

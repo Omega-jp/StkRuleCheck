@@ -6,6 +6,7 @@ from src.validate_buy_rule import load_stock_data
 def get_buy_rules():
     rules = []
     buy_rule_dir = 'src/buyRule'
+    
     for filename in os.listdir(buy_rule_dir):
         if filename.endswith('.py') and filename != '__init__.py':
             rule_name = filename[:-3]
@@ -18,7 +19,14 @@ def get_latest_result(df, rule_name, stock_id):
     check_func = getattr(module, f'check_{rule_name.replace("breakthrough_", "")}', None)
     if check_func is None:
         return 'Error: Function not found'
-    rule_df = check_func(df) if 'four_seas_dragon' not in rule_name else check_func(df, [5,10,20,60], stock_id)
+    
+    # 根據不同的規則名稱調用不同的函數
+    if 'four_seas_dragon' in rule_name:
+        rule_df = check_func(df, [5,10,20,60], stock_id)
+    elif 'diamond_cross' in rule_name:
+        rule_df = check_func(df)
+    else:
+        rule_df = check_func(df)
     if rule_df.empty:
         return 'No data'
     latest = rule_df.iloc[-1]
@@ -28,14 +36,17 @@ def get_latest_result(df, rule_name, stock_id):
 def main():
     stock_list_file = 'config/stklist.cfg'
     stock_ids = []
+    stock_names = {}
     with open(stock_list_file, 'r', encoding='utf-8') as f:
         next(f)  # 跳過標頭行
         for line in f:
-            parts = line.strip().split(',')
-            if parts:
+            parts = line.strip().split(',', 1)  # 只分割第一個逗號，保留中文名稱中可能的逗號
+            if parts and len(parts) >= 2:
                 stock_id = parts[0].strip()
+                stock_name = parts[1].strip() if len(parts) > 1 else ""
                 if stock_id:
                     stock_ids.append(stock_id)
+                    stock_names[stock_id] = stock_name
     
     rules = get_buy_rules()
     summary_data = []
@@ -43,7 +54,10 @@ def main():
         df = load_stock_data(stock_id, 'D')
         if df is None:
             continue
-        row = {'StockID': stock_id}
+        row = {
+            'StockID': stock_id,
+            'StockName': stock_names.get(stock_id, "")
+        }
         for rule in rules:
             result = get_latest_result(df, rule, stock_id)
             row[rule] = result

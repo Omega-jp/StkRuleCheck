@@ -105,8 +105,10 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
             addplots.append(
                 mpf.make_addplot(recent_df[['MACD', 'Signal']], panel=macd_panel_idx, ylabel='MACD', width=1, ylim=macd_ylim)
             )
+            # 使用條件顏色：正值綠色，負值紅色
+            histogram_colors = ['green' if h >= 0 else 'red' for h in recent_df['Histogram']]
             addplots.append(
-                mpf.make_addplot(recent_df['Histogram'], type='bar', panel=macd_panel_idx, color='red', width=0.7, alpha=0.7)
+                mpf.make_addplot(recent_df['Histogram'], type='bar', panel=macd_panel_idx, color=histogram_colors, width=0.7, alpha=0.7)
             )
             panels_to_include.append(macd_panel_idx)
             panel_ratios_values.append(2) # Add ratio for MACD panel
@@ -125,23 +127,47 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
                 # 根據規則名稱設置不同的垂直位置
                 if rule_name == '三陽開泰':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
+                    buy_signal_data.loc[buy_markers] = y_position
                 elif rule_name == '四海游龍':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.97
-                else:
+                    buy_signal_data.loc[buy_markers] = y_position
+                elif rule_name == '鑽石叉':
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.95
+                    buy_signal_data.loc[buy_markers] = y_position
+                elif rule_name != '轉折高點' and rule_name != '轉折低點':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
-                buy_signal_data.loc[buy_markers] = y_position
+                    buy_signal_data.loc[buy_markers] = y_position
                 
-                # 修改三陽開泰的箭頭顏色和樣式
+                # 根據規則名稱設置不同的箭頭顏色和樣式
                 if rule_name == '三陽開泰':
                     color = 'orange'
                     marker = '^'
+                elif rule_name == '鑽石叉':
+                    color = 'magenta'  # 洋紅色，突出顯示鑽石叉信號
+                    marker = 'D'  # 鑽石形狀的標記
+                elif rule_name == '轉折高點':
+                    color = 'darkred'  # 深紅色，突出顯示轉折高點
+                    marker = '*'  # 星形標記
+                    y_position = recent_df.loc[buy_markers, 'High'] * 1.03  # 在高點上方顯示，距離更遠
+                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
+                elif rule_name == '轉折低點':
+                    color = 'darkgreen'  # 深綠色，突出顯示轉折低點
+                    marker = '*'  # 星形標記
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.97  # 在低點下方顯示，距離更遠
+                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
                 else:
                     color = buy_colors[i % len(buy_colors)]
                     marker = '^'
                 
+                # 為轉折高點和轉折低點設置更大的標記尺寸
+                if rule_name == '轉折高點' or rule_name == '轉折低點':
+                    actual_marker_size = marker_size * 1.5  # 增加50%的尺寸
+                else:
+                    actual_marker_size = marker_size
+                
                 addplots.append(
                     mpf.make_addplot(buy_signal_data, type='scatter',
-                                    marker=marker, markersize=marker_size, color=color)
+                                    marker=marker, markersize=actual_marker_size, color=color)
                 )
     
     # Add sell signals
@@ -204,20 +230,34 @@ def validate_buy_rule(stock_id):
     print(f"成功載入數據，共 {len(df)} 筆記錄")
     print(f"數據欄位: {list(df.columns)}")
     
-    # 调用 三阳开泰 的规则检查
+    # 调用 各种买入规则检查
     from .buyRule.breakthrough_san_yang_kai_tai import check_san_yang_kai_tai
     from .buyRule.breakthrough_four_seas_dragon import check_four_seas_dragon
     from .buyRule.macd_golden_cross_above_zero import check_macd_golden_cross_above_zero
     from .buyRule.macd_golden_cross_above_zero_positive_histogram import check_macd_golden_cross_above_zero_positive_histogram
+    from .buyRule.diamond_cross import check_diamond_cross
+    from .baseRule.turning_point_identification import check_turning_points
     san_yang_rule_df = check_san_yang_kai_tai(df)
     four_seas_dragon_rule_df = check_four_seas_dragon(df, [5, 10, 20, 60], stock_id)
     macd_rule_df = check_macd_golden_cross_above_zero(df)
     macd_positive_hist_rule_df = check_macd_golden_cross_above_zero_positive_histogram(df)
+    diamond_cross_rule_df = check_diamond_cross(df)
+    turning_points_rule_df = check_turning_points(df)
+    
+    # 將轉折點結果傳遞給鑽石叉規則，修改 check_diamond_cross 來接受 turning_points_df 參數
+    diamond_cross_rule_df = check_diamond_cross(df, turning_points_rule_df)  # 假設我們修改了函數簽名
     
     # 合併規則結果
     rule_df = pd.merge(san_yang_rule_df, four_seas_dragon_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, macd_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, macd_positive_hist_rule_df, on='date', how='outer')
+    rule_df = pd.merge(rule_df, diamond_cross_rule_df, on='date', how='outer')
+    
+    # 保存基礎規則結果（轉折點識別）
+    base_rule_dir = 'output/base_rule'
+    os.makedirs(base_rule_dir, exist_ok=True)
+    turning_points_rule_df.to_csv(f'{base_rule_dir}/{stock_id}_D_Rule.csv', index=False)
+    print(f'已生成基礎規則文件: {base_rule_dir}/{stock_id}_D_Rule.csv')
     
     # 提取買入信號，並按規則名稱組織
     buy_signals_dict = {}
@@ -253,6 +293,26 @@ def validate_buy_rule(stock_id):
             date_obj = pd.to_datetime(row['date'])
             macd_positive_hist_dates.append(date_obj)
     buy_signals_dict['MACD黃金交叉零軸上正柱'] = macd_positive_hist_dates
+    
+    # 先處理轉折點識別規則
+    turning_high_dates = []
+    turning_low_dates = []
+    for i, row in turning_points_rule_df.iterrows():
+        date_obj = pd.to_datetime(row['date'])
+        if row.get('turning_high_point', '') == 'O':
+            turning_high_dates.append(date_obj)
+        if row.get('turning_low_point', '') == 'O':
+            turning_low_dates.append(date_obj)
+    buy_signals_dict['轉折高點'] = turning_high_dates
+    buy_signals_dict['轉折低點'] = turning_low_dates
+    
+    # 處理鑽石叉規則
+    diamond_cross_dates = []
+    for i, row in rule_df.iterrows():
+        if row.get('diamond_cross_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            diamond_cross_dates.append(date_obj)
+    buy_signals_dict['鑽石叉'] = diamond_cross_dates
     
     plot_candlestick_chart(df, stock_id, buy_signals_dict)
     

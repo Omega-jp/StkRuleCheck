@@ -16,3 +16,4 @@ output/
 .DS_Store
 .localized
 Thumbs.db
+*.log

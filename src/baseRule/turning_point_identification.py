@@ -26,8 +26,10 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
         turning_high_point = ''
         turning_low_point = ''
         
-        # 確保有足夠的數據進行計算
-        if i < window_size or i >= len(df) - window_size or 'ma5' not in df.columns or pd.isna(row['ma5']):
+        # 🔧 修正1: 放寬邊界條件 - 移除末尾的邊界限制，允許處理接近末尾的穿越
+        # 原始代碼：if i < window_size or i >= len(df) - window_size or 'ma5' not in df.columns or pd.isna(row['ma5']):
+        # 修正為：只檢查開頭邊界和必要的數據完整性
+        if i < 1 or 'ma5' not in df.columns or pd.isna(row['ma5']):  # 只需要前一天數據即可
             results.append({
                 'date': date,
                 'turning_high_point': turning_high_point,
@@ -36,16 +38,8 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
             continue
         
         # 獲取前一天的數據
-        if i > 0:
-            prev_row = df.iloc[i - 1]
-            if pd.isna(prev_row['ma5']):
-                results.append({
-                    'date': date,
-                    'turning_high_point': turning_high_point,
-                    'turning_low_point': turning_low_point
-                })
-                continue
-        else:
+        prev_row = df.iloc[i - 1]
+        if pd.isna(prev_row['ma5']):
             results.append({
                 'date': date,
                 'turning_high_point': turning_high_point,
@@ -53,16 +47,8 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
             })
             continue
         
-        # 檢查是否為局部高點或低點
-        window_start = max(0, i - window_size)
-        window_end = min(len(df) - 1, i + window_size)
-        window_data = df.iloc[window_start:window_end + 1]
-        
-        # 檢查是否為局部高點
-        is_local_high = row['Close'] == window_data['Close'].max()
-        
-        # 檢查是否為局部低點
-        is_local_low = row['Close'] == window_data['Close'].min()
+        # 🔧 修正2: 移除不必要的局部高低點檢查（原始算法中沒有使用）
+        # 原始代碼中計算了 is_local_high 和 is_local_low 但實際沒有使用，所以移除
         
         # 檢查MA穿越類型
         current_close = row['Close']
@@ -122,6 +108,52 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
             'turning_high_point': turning_high_point,
             'turning_low_point': turning_low_point
         })
+    
+    # 🔧 修正3: 處理最後一個未完成的穿越事件
+    # 在循環結束後，檢查是否有未處理的穿越事件需要回溯處理
+    
+    # 如果最後一個事件是向上穿越，且之前有向下穿越，需要處理最低點
+    if last_cross_up_idx is not None and last_cross_down_idx is not None and last_cross_up_idx > last_cross_down_idx:
+        # 這意味著最後一次是向上穿越，但可能沒有後續的向下穿越來觸發回溯
+        # 檢查是否已經處理過這個區間的最低點
+        period_data = df.iloc[last_cross_down_idx:last_cross_up_idx+1]
+        min_low_idx = period_data['Low'].idxmin()
+        min_low_date = min_low_idx.strftime('%Y-%m-%d')
+        
+        # 檢查這個最低點是否已經被標記
+        already_marked = False
+        for result in results:
+            if result['date'] == min_low_date and result['turning_low_point'] == 'O':
+                already_marked = True
+                break
+        
+        # 如果沒有被標記，現在標記它
+        if not already_marked:
+            for j, result in enumerate(results):
+                if result['date'] == min_low_date:
+                    results[j]['turning_low_point'] = 'O'
+                    break
+    
+    # 如果最後一個事件是向下穿越，且之前有向上穿越，需要處理最高點
+    if last_cross_down_idx is not None and last_cross_up_idx is not None and last_cross_down_idx > last_cross_up_idx:
+        # 這意味著最後一次是向下穿越，但可能沒有後續的向上穿越來觸發回溯
+        period_data = df.iloc[last_cross_up_idx:last_cross_down_idx+1]
+        max_high_idx = period_data['High'].idxmax()
+        max_high_date = max_high_idx.strftime('%Y-%m-%d')
+        
+        # 檢查這個最高點是否已經被標記
+        already_marked = False
+        for result in results:
+            if result['date'] == max_high_date and result['turning_high_point'] == 'O':
+                already_marked = True
+                break
+        
+        # 如果沒有被標記，現在標記它
+        if not already_marked:
+            for j, result in enumerate(results):
+                if result['date'] == max_high_date:
+                    results[j]['turning_high_point'] = 'O'
+                    break
     
     return pd.DataFrame(results)
 

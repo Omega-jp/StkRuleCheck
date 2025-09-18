@@ -155,6 +155,11 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
                     marker = '*'  # 星形標記
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.97  # 在低點下方顯示，距離更遠
                     buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
+                elif rule_name == '壓力線突破':
+                    color = 'cyan'  # 青色，突出顯示壓力線突破
+                    marker = 'o'  # 圓形標記
+                    y_position = recent_df.loc[buy_markers, 'High'] * 1.02  # 在高點上方顯示
+                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
                 else:
                     color = buy_colors[i % len(buy_colors)]
                     marker = '^'
@@ -237,21 +242,26 @@ def validate_buy_rule(stock_id):
     from .buyRule.macd_golden_cross_above_zero_positive_histogram import check_macd_golden_cross_above_zero_positive_histogram
     from .buyRule.diamond_cross import check_diamond_cross
     from .baseRule.turning_point_identification import check_turning_points
+    from .buyRule.breakthrough_resistance_line import check_resistance_line_breakthrough
     san_yang_rule_df = check_san_yang_kai_tai(df)
     four_seas_dragon_rule_df = check_four_seas_dragon(df, [5, 10, 20, 60], stock_id)
     macd_rule_df = check_macd_golden_cross_above_zero(df)
     macd_positive_hist_rule_df = check_macd_golden_cross_above_zero_positive_histogram(df)
     diamond_cross_rule_df = check_diamond_cross(df)
     turning_points_rule_df = check_turning_points(df)
-    
+
     # 將轉折點結果傳遞給鑽石叉規則，修改 check_diamond_cross 來接受 turning_points_df 參數
     diamond_cross_rule_df = check_diamond_cross(df, turning_points_rule_df)  # 假設我們修改了函數簽名
-    
+
+    # 添加壓力線突破規則
+    resistance_breakthrough_df = check_resistance_line_breakthrough(df, turning_points_rule_df)
+
     # 合併規則結果
     rule_df = pd.merge(san_yang_rule_df, four_seas_dragon_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, macd_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, macd_positive_hist_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, diamond_cross_rule_df, on='date', how='outer')
+    rule_df = pd.merge(rule_df, resistance_breakthrough_df, on='date', how='outer')
     
     # 保存基礎規則結果（轉折點識別）
     base_rule_dir = 'output/base_rule'
@@ -313,7 +323,15 @@ def validate_buy_rule(stock_id):
             date_obj = pd.to_datetime(row['date'])
             diamond_cross_dates.append(date_obj)
     buy_signals_dict['鑽石叉'] = diamond_cross_dates
-    
+
+    # 處理壓力線突破規則
+    resistance_breakthrough_dates = []
+    for i, row in rule_df.iterrows():
+        if row.get('resistance_line_breakthrough_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            resistance_breakthrough_dates.append(date_obj)
+    buy_signals_dict['壓力線突破'] = resistance_breakthrough_dates
+
     plot_candlestick_chart(df, stock_id, buy_signals_dict)
     
     # 保存規則結果

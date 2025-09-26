@@ -160,7 +160,9 @@ def descending_trendline_test(stock_id='2330', days=360):
     try:
         # 導入必要模塊
         from src.validate_buy_rule import load_stock_data
-        from src.buyRule.breakthrough_descending_trendline_buy_rule import check_breakthrough_descending_trendline_buy_rule
+        from src.buyRule.breakthrough_descending_trendline import (
+            check_breakthrough_descending_trendline_buy_rule,
+        )
         from src.baseRule.turning_point_identification import identify_turning_points
         
         # 載入數據

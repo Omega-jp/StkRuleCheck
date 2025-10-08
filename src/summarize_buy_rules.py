@@ -7,10 +7,16 @@ def get_buy_rules():
     rules = []
     buy_rule_dir = 'src/buyRule'
     
+    exclude_modules = {'long_term_descending_trendline'}
     for filename in os.listdir(buy_rule_dir):
-        if filename.endswith('.py') and filename != '__init__.py':
-            rule_name = filename[:-3]
-            rules.append(rule_name)
+        if not filename.endswith('.py') or filename == '__init__.py':
+            continue
+
+        rule_name = filename[:-3]
+        if rule_name in exclude_modules:
+            continue
+
+        rules.append(rule_name)
     return rules
 
 def get_latest_result(df, rule_name, stock_id):
@@ -156,3 +162,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+

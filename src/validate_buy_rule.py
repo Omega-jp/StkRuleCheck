@@ -43,7 +43,7 @@ def load_stock_data(stock_id, data_type='D'):
         print(f"載入數據時發生錯誤: {e}")
         return None
 
-def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=None):
+def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=None, turning_points_df=None, wave_points_df=None):
     """繪製K線圖"""
     if df is None or df.empty:
         print("數據為空，無法繪製圖表")
@@ -124,57 +124,158 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
             buy_markers = [date for date in buy_signals if date in recent_df.index]
             if buy_markers:
                 buy_signal_data = pd.Series(np.nan, index=recent_df.index)
-                # 根據規則名稱設置不同的垂直位置
+                # �ھڳW�h�W�ٳ]�m���P��������m
                 if rule_name == '三陽開泰':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
-                    buy_signal_data.loc[buy_markers] = y_position
                 elif rule_name == '四海游龍':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.97
-                    buy_signal_data.loc[buy_markers] = y_position
                 elif rule_name == '鑽石叉':
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.95
-                    buy_signal_data.loc[buy_markers] = y_position
-                elif rule_name != '轉折高點' and rule_name != '轉折低點':
+                elif rule_name == '轉折高點':
+                    y_position = recent_df.loc[buy_markers, 'High'] * 1.02
+                elif rule_name == '轉折低點':
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.98
+                elif rule_name == '波段高點':
+                    y_position = recent_df.loc[buy_markers, 'High'] * 1.04
+                elif rule_name == '波段低點':
+                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.96
+                elif rule_name == '壓力線突破':
+                    y_position = recent_df.loc[buy_markers, 'High'] * 1.02
+                else:
                     y_position = recent_df.loc[buy_markers, 'Low'] * 0.99
-                    buy_signal_data.loc[buy_markers] = y_position
-                
-                # 根據規則名稱設置不同的箭頭顏色和樣式
+                buy_signal_data.loc[buy_markers] = y_position
+
+                # �ھڳW�h�W�ٳ]�m���P���b�Y�C��M�˦�
                 if rule_name == '三陽開泰':
                     color = 'orange'
                     marker = '^'
+                elif rule_name == '四海游龍':
+                    color = 'royalblue'
+                    marker = '^'
                 elif rule_name == '鑽石叉':
-                    color = 'magenta'  # 洋紅色，突出顯示鑽石叉信號
-                    marker = 'D'  # 鑽石形狀的標記
+                    color = 'magenta'
+                    marker = 'D'
                 elif rule_name == '轉折高點':
-                    color = 'darkred'  # 深紅色，突出顯示轉折高點
-                    marker = '*'  # 星形標記
-                    y_position = recent_df.loc[buy_markers, 'High'] * 1.03  # 在高點上方顯示，距離更遠
-                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
+                    color = 'crimson'
+                    marker = '^'
                 elif rule_name == '轉折低點':
-                    color = 'darkgreen'  # 深綠色，突出顯示轉折低點
-                    marker = '*'  # 星形標記
-                    y_position = recent_df.loc[buy_markers, 'Low'] * 0.97  # 在低點下方顯示，距離更遠
-                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
+                    color = 'forestgreen'
+                    marker = 'v'
+                elif rule_name == '波段高點':
+                    color = 'darkred'
+                    marker = '*'
+                elif rule_name == '波段低點':
+                    color = 'darkgreen'
+                    marker = '*'
                 elif rule_name == '壓力線突破':
-                    color = 'cyan'  # 青色，突出顯示壓力線突破
-                    marker = 'o'  # 圓形標記
-                    y_position = recent_df.loc[buy_markers, 'High'] * 1.02  # 在高點上方顯示
-                    buy_signal_data.loc[buy_markers] = y_position  # 更新數據點位置
+                    color = 'cyan'
+                    marker = 'o'
                 else:
                     color = buy_colors[i % len(buy_colors)]
                     marker = '^'
-                
+
                 # 為轉折高點和轉折低點設置更大的標記尺寸
-                if rule_name == '轉折高點' or rule_name == '轉折低點':
-                    actual_marker_size = marker_size * 1.5  # 增加50%的尺寸
+                if rule_name in {'轉折高點', '轉折低點'}:
+                    actual_marker_size = marker_size * 1.2
+                elif rule_name in {'波段高點', '波段低點'}:
+                    actual_marker_size = marker_size * 1.8
                 else:
                     actual_marker_size = marker_size
-                
+
                 addplots.append(
                     mpf.make_addplot(buy_signal_data, type='scatter',
                                     marker=marker, markersize=actual_marker_size, color=color)
                 )
+
     
+    # Draw polylines for turning and wave sequences on K chart
+    def _enforce_alternating_points(raw_points):
+        ordered = sorted(raw_points, key=lambda x: x[1])
+        filtered = []
+        for point_type, date, price in ordered:
+            if not filtered:
+                filtered.append((point_type, date, price))
+                continue
+            last_type, last_date, last_price = filtered[-1]
+            if point_type == last_type:
+                if point_type == 'high':
+                    if price >= last_price:
+                        filtered[-1] = (point_type, date, price)
+                else:
+                    if price <= last_price:
+                        filtered[-1] = (point_type, date, price)
+                continue
+            filtered.append((point_type, date, price))
+        return filtered
+
+    def _build_sequence_series(source_df, high_flag, low_flag):
+        if source_df is None or source_df.empty:
+            return None
+        temp_df = source_df.copy()
+        temp_df['date'] = pd.to_datetime(temp_df['date'], errors='coerce')
+        temp_df = temp_df.dropna(subset=['date'])
+        temp_df = temp_df[temp_df['date'].isin(recent_df.index)]
+        temp_df = temp_df.sort_values('date')
+
+        raw_points = []
+        for _, row in temp_df.iterrows():
+            date = row['date']
+            if row.get(high_flag) == 'O':
+                raw_points.append(('high', date, recent_df.loc[date, 'High']))
+            if row.get(low_flag) == 'O':
+                raw_points.append(('low', date, recent_df.loc[date, 'Low']))
+
+        filtered_points = _enforce_alternating_points(raw_points)
+        if len(filtered_points) < 2:
+            return None
+
+        dates, values = zip(*[(date, price) for _, date, price in filtered_points])
+        return pd.Series(values, index=dates)
+
+    turning_sequence_series = _build_sequence_series(turning_points_df, 'turning_high_point', 'turning_low_point')
+    if turning_sequence_series is not None:
+        addplots.append(
+            mpf.make_addplot(
+                turning_sequence_series,
+                type='line',
+                color='dimgray',
+                linestyle=(0, (6, 2)),
+                linewidth=1.0,
+                alpha=0.7
+            )
+        )
+
+    wave_sequence_series = None
+    if wave_points_df is not None and not wave_points_df.empty:
+        wave_points_aligned = wave_points_df.copy()
+        wave_points_aligned['date'] = pd.to_datetime(
+            wave_points_aligned['date'], errors='coerce'
+        )
+        wave_points_aligned = wave_points_aligned.dropna(subset=['date'])
+        wave_points_aligned = wave_points_aligned[
+            wave_points_aligned['date'].isin(recent_df.index)
+        ].sort_values('date')
+
+        wave_sequence_series = _build_sequence_series(
+            wave_points_aligned, 'wave_high_point', 'wave_low_point'
+        )
+    else:
+        wave_sequence_series = _build_sequence_series(
+            wave_points_df, 'wave_high_point', 'wave_low_point'
+        )
+
+    if wave_sequence_series is not None:
+        addplots.append(
+            mpf.make_addplot(
+                wave_sequence_series,
+                type='line',
+                color='darkred',
+                linestyle='-',
+                linewidth=1.2,
+                alpha=0.85
+            )
+        )
+
     # Add sell signals
     if sell_signals is not None:
         sell_markers = [date for date in sell_signals if date in recent_df.index]
@@ -242,6 +343,7 @@ def validate_buy_rule(stock_id):
     from .buyRule.macd_golden_cross_above_zero_positive_histogram import check_macd_golden_cross_above_zero_positive_histogram
     from .buyRule.diamond_cross import check_diamond_cross
     from .baseRule.turning_point_identification import check_turning_points
+    from .baseRule.wave_point_identification import check_wave_points
     from .buyRule.breakthrough_resistance_line import check_resistance_line_breakthrough
     san_yang_rule_df = check_san_yang_kai_tai(df)
     four_seas_dragon_rule_df = check_four_seas_dragon(df, [5, 10, 20, 60], stock_id)
@@ -249,6 +351,33 @@ def validate_buy_rule(stock_id):
     macd_positive_hist_rule_df = check_macd_golden_cross_above_zero_positive_histogram(df)
     diamond_cross_rule_df = check_diamond_cross(df)
     turning_points_rule_df = check_turning_points(df)
+
+    # 準備波段高低點資料，將轉折點資訊合併後計算波段高低點
+    df_for_wave_points = df.sort_index().copy()
+    df_for_wave_points_reset = df_for_wave_points.reset_index()
+    date_col_name = df_for_wave_points_reset.columns[0]
+    df_for_wave_points_reset[date_col_name] = pd.to_datetime(
+        df_for_wave_points_reset[date_col_name], errors='coerce'
+    )
+
+    turning_points_aligned = turning_points_rule_df.copy()
+    turning_points_aligned['date'] = pd.to_datetime(
+        turning_points_aligned['date'], errors='coerce'
+    )
+
+    df_with_turning_points = pd.merge(
+        df_for_wave_points_reset,
+        turning_points_aligned,
+        left_on=date_col_name,
+        right_on='date',
+        how='left'
+    )
+
+    df_with_turning_points['turning_high_point'] = df_with_turning_points['turning_high_point'].fillna('')
+    df_with_turning_points['turning_low_point'] = df_with_turning_points['turning_low_point'].fillna('')
+    df_with_turning_points.set_index(date_col_name, inplace=True)
+
+    wave_points_rule_df = check_wave_points(df_with_turning_points)
 
     # 將轉折點結果傳遞給鑽石叉規則，修改 check_diamond_cross 來接受 turning_points_df 參數
     diamond_cross_rule_df = check_diamond_cross(df, turning_points_rule_df)  # 假設我們修改了函數簽名
@@ -262,11 +391,18 @@ def validate_buy_rule(stock_id):
     rule_df = pd.merge(rule_df, macd_positive_hist_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, diamond_cross_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, resistance_breakthrough_df, on='date', how='outer')
-    
+
+    wave_points_rule_df['date'] = pd.to_datetime(
+        wave_points_rule_df['date'], errors='coerce'
+    ).dt.strftime('%Y-%m-%d')
+    rule_df = pd.merge(rule_df, wave_points_rule_df, on='date', how='outer')
+
     # 保存基礎規則結果（轉折點識別）
     base_rule_dir = 'output/base_rule'
     os.makedirs(base_rule_dir, exist_ok=True)
     turning_points_rule_df.to_csv(f'{base_rule_dir}/{stock_id}_D_Rule.csv', index=False)
+    wave_points_rule_df.to_csv(f'{base_rule_dir}/{stock_id}_D_Wave.csv', index=False)
+    print(f'已產出波段規則檔案: {base_rule_dir}/{stock_id}_D_Wave.csv')
     print(f'已生成基礎規則文件: {base_rule_dir}/{stock_id}_D_Rule.csv')
     
     # 提取買入信號，並按規則名稱組織
@@ -316,6 +452,22 @@ def validate_buy_rule(stock_id):
     buy_signals_dict['轉折高點'] = turning_high_dates
     buy_signals_dict['轉折低點'] = turning_low_dates
     
+    wave_high_dates = []
+    wave_low_dates = []
+    for _, row in wave_points_rule_df.iterrows():
+        date_value = row.get('date')
+        if pd.isna(date_value):
+            continue
+        date_obj = pd.to_datetime(date_value)
+        if pd.isna(date_obj):
+            continue
+        if row.get('wave_high_point', '') == 'O':
+            wave_high_dates.append(date_obj)
+        if row.get('wave_low_point', '') == 'O':
+            wave_low_dates.append(date_obj)
+    buy_signals_dict['波段高點'] = wave_high_dates
+    buy_signals_dict['波段低點'] = wave_low_dates
+    
     # 處理鑽石叉規則
     diamond_cross_dates = []
     for i, row in rule_df.iterrows():
@@ -332,7 +484,13 @@ def validate_buy_rule(stock_id):
             resistance_breakthrough_dates.append(date_obj)
     buy_signals_dict['壓力線突破'] = resistance_breakthrough_dates
 
-    plot_candlestick_chart(df, stock_id, buy_signals_dict)
+    plot_candlestick_chart(
+        df,
+        stock_id,
+        buy_signals_dict,
+        turning_points_df=turning_points_rule_df,
+        wave_points_df=wave_points_rule_df
+    )
     
     # 保存規則結果
     output_dir = 'output/buy_rules'

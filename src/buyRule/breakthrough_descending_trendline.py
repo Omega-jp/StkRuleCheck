@@ -1,5 +1,5 @@
+import math
 import pandas as pd
-import numpy as np
 from ..baseRule.turning_point_identification import identify_turning_points
 from .long_term_descending_trendline import identify_long_term_descending_trendlines
 
@@ -240,7 +240,7 @@ def _calculate_signal_strength(line: dict, breakthrough_pct: float, volume_ratio
     if slope_abs >= 0.5:  # 陡峭下降
         score += 0.5
     
-    return min(5, max(1, round(score)))
+    return min(5, max(1, int(math.floor(score + 0.5))))
 
 
 def get_breakthrough_summary_stats(breakthrough_df: pd.DataFrame) -> dict:

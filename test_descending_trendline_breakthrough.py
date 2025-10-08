@@ -64,33 +64,34 @@ def find_breakthrough_descending_lines(high_point_dates, high_point_prices, buy_
             continue
         
         # 根據突破類型確定趨勢線
+        latest_high_point = available_high_points[-1]
+
         if breakthrough_type == 'long_term_two_point':
-            # 長期趨勢線：找符合長期條件的兩點組合
-            for i in range(len(available_high_points)):
-                for j in range(i + 1, len(available_high_points)):
-                    point1 = available_high_points[i]
-                    point2 = available_high_points[j]
-                    
-                    # 檢查時間跨度是否為長期（≥180天）
-                    days_span = (point2['date'] - point1['date']).days
-                    if days_span >= 180:
-                        # 檢查是否為下降趨勢
-                        if point2['price'] < point1['price']:
-                            line_info = create_line_info(point1, point2, buy_signal, buy_date, buy_close)
-                            if line_info:
-                                breakthrough_lines.append(line_info)
-                            break
-                if breakthrough_lines and breakthrough_lines[-1]['breakthrough_date'] == buy_date:
-                    break  # 已找到該買入點的趨勢線
-        
+            # 僅繪製與最近一個轉折高點相關的長期趨勢線
+            found_line = False
+            for i in range(len(available_high_points) - 1):
+                point1 = available_high_points[i]
+                point2 = latest_high_point
+
+                if point1['date'] == point2['date']:
+                    continue
+
+                days_span = (point2['date'] - point1['date']).days
+                if days_span >= 180 and point2['price'] < point1['price']:
+                    line_info = create_line_info(point1, point2, buy_signal, buy_date, buy_close)
+                    if line_info:
+                        breakthrough_lines.append(line_info)
+                        found_line = True
+                        break
+
+            if not found_line:
+                continue
+
         else:  # short_term_multi_point
-            # 短期多點趨勢線：使用最近的兩個高點作為代表
             if len(available_high_points) >= 2:
-                # 取最近的兩個轉折高點
                 point1 = available_high_points[-2]
-                point2 = available_high_points[-1]
-                
-                # 檢查是否為下降趨勢且為短期
+                point2 = latest_high_point
+
                 days_span = (point2['date'] - point1['date']).days
                 if days_span < 180 and point2['price'] < point1['price']:
                     line_info = create_line_info(point1, point2, buy_signal, buy_date, buy_close)
@@ -98,6 +99,12 @@ def find_breakthrough_descending_lines(high_point_dates, high_point_prices, buy_
                         breakthrough_lines.append(line_info)
     
     # 按買入日期排序，去除重複
+    if breakthrough_lines:
+        latest_line_high_date = max(line['point2_date'] for line in breakthrough_lines)
+        lines_with_latest_high = [line for line in breakthrough_lines if line['point2_date'] == latest_line_high_date]
+        if lines_with_latest_high:
+            breakthrough_lines = lines_with_latest_high
+
     breakthrough_lines.sort(key=lambda x: x['breakthrough_date'])
     
     # 去除重複的趨勢線（相同的兩個點）
@@ -384,7 +391,7 @@ def create_descending_trendline_chart(stock_id, recent_df, turning_points_df, bu
                     size = signal_sizes.get(strength, 50)
                     
                     plt.scatter([buy_date], [buy_mark_price],
-                               color=color, marker='★', s=size, 
+                               color=color, marker='P', s=size, 
                                edgecolor='darkgreen', linewidth=2, 
                                label=f'買入信號強度{strength}' if buy_signal_count == 0 else '', zorder=20)
                     buy_signal_count += 1
@@ -423,7 +430,7 @@ def create_descending_trendline_chart(stock_id, recent_df, turning_points_df, bu
                     
                     # 在成交量柱上方標記
                     plt.scatter([buy_date], [buy_volume * 1.1],
-                               color='gold', marker='★', s=40, 
+                               color='gold', marker='P', s=40, 
                                edgecolor='red', linewidth=1, zorder=10)
                     
                     # 添加成交量比率文字

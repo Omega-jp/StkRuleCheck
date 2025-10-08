@@ -13,7 +13,7 @@ def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, ret
     
     Args:
         stock_id (str): 股票代碼
-        start_date (datetime, optional): 起始日期。如果未指定，默認為當前日期往前200天
+        start_date (datetime, optional): 起始日期。如果未指定，默認為當前日期往前540天
         end_date (datetime, optional): 結束日期。如果未指定，默認為當前日期
         max_retries (int): 最大重試次數
         retry_delay (int): 重試延遲秒數
@@ -39,7 +39,7 @@ def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, ret
             if end_date is None:
                 end_date = datetime.now()
             if start_date is None:
-                start_date = end_date - timedelta(days=200)
+                start_date = end_date - timedelta(days=540)
             
             contract = api.Contracts.Stocks[stock_id]
             kbars = api.kbars(contract, 

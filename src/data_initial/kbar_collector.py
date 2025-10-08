@@ -8,11 +8,11 @@ def collect_and_save_kbars():
     根據 'config/StkList.cfg' 清單收集日K和周K資料，並存成 .csv 檔。
     如果檔案已存在：
     1. 檢查最後更新日期，如果不是最新的，則補充數據到今天
-    2. 如果數據早於下載總天數(200天)，則重新下載
+    2. 如果數據早於下載總天數(540天)，則重新下載
     """
     stk_list_path = 'config/StkList.cfg'
     data_output_dir = 'Data/kbar'
-    DOWNLOAD_DAYS = 200  # 下載天數
+    DOWNLOAD_DAYS = 540  # 下載天數
 
     # 確保輸出目錄存在
     os.makedirs(data_output_dir, exist_ok=True)

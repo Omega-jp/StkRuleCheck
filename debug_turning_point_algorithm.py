@@ -362,32 +362,24 @@ def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_poi
                 color='blue', linewidth=2, linestyle='-', 
                 alpha=0.8, label='5MA', zorder=5)
         
-        # 標記穿越點
-        for date, direction in cross_events:
-            if direction == 'up':
-                plt.scatter([date], [recent_df.loc[date, 'Close'] * 0.98], 
-                           color='lime', marker='^', s=100, 
-                           label='向上穿越' if date == cross_events[0][0] or cross_events[0][1] != 'up' else '', 
-                           zorder=10)
-            else:
-                plt.scatter([date], [recent_df.loc[date, 'Close'] * 1.02], 
-                           color='red', marker='v', s=100, 
-                           label='向下穿越' if date == cross_events[0][0] or cross_events[0][1] != 'down' else '', 
-                           zorder=10)
-        
-        # 標記轉折點
-        for date, point_type, price in identified_turning_points:
-            if point_type == 'high':
-                plt.scatter([date], [price * 1.03], 
-                           color='darkred', marker='^', s=120, 
-                           label='轉折高點' if identified_turning_points[0][1] != 'high' or date == identified_turning_points[0][0] else '', 
-                           edgecolor='white', linewidth=2, zorder=15)
-            else:
-                plt.scatter([date], [price * 0.97], 
-                           color='darkblue', marker='v', s=120, 
-                           label='轉折低點' if identified_turning_points[0][1] != 'low' or date == identified_turning_points[0][0] else '', 
-                           edgecolor='white', linewidth=2, zorder=15)
-        
+        # 標記轉折點並連線
+        ordered_turning = sorted(identified_turning_points, key=lambda x: x[0])
+        for idx_tp, (date, point_type, price) in enumerate(ordered_turning):
+            color = 'darkred' if point_type == 'high' else 'darkblue'
+            marker = '^' if point_type == 'high' else 'v'
+            first_same = all(ordered_turning[j][1] != point_type for j in range(idx_tp))
+            plt.scatter([date], [price],
+                       facecolors='none', edgecolors=color, marker=marker, s=170,
+                       label=('轉折高點' if point_type == 'high' else '轉折低點') if first_same else '',
+                       linewidths=1.5, zorder=15)
+
+        if len(ordered_turning) > 1:
+            turning_dates = [tp[0] for tp in ordered_turning]
+            turning_prices = [tp[2] for tp in ordered_turning]
+            plt.plot(turning_dates, turning_prices,
+                     color='brown', linewidth=1.6, linestyle='-',
+                     alpha=0.85, zorder=14, label='轉折連線')
+
         plt.title(f'{stock_id} 轉折點算法執行過程診斷', fontsize=16, fontweight='bold')
         plt.ylabel('價格', fontsize=12)
         plt.legend(fontsize=10, loc='upper left')
@@ -399,12 +391,6 @@ def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_poi
         plt.plot(dates, recent_df['ma5'], label='MA5', color='blue', linewidth=2)
         
         # 標記穿越點
-        for date, direction in cross_events:
-            color = 'lime' if direction == 'up' else 'red'
-            marker = '^' if direction == 'up' else 'v'
-            plt.scatter([date], [recent_df.loc[date, 'Close']], 
-                       color=color, marker=marker, s=80, zorder=10)
-        
         plt.title('收盤價 vs MA5 關係圖', fontsize=14)
         plt.ylabel('價格', fontsize=12)
         plt.legend(fontsize=10)
@@ -417,10 +403,6 @@ def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_poi
         plt.fill_between(dates, 0, above_ma5, alpha=0.3, color='purple')
         
         # 標記穿越點
-        for date, direction in cross_events:
-            plt.axvline(x=date, color='red' if direction == 'down' else 'lime', 
-                       linestyle='--', alpha=0.7)
-        
         plt.title('收盤價相對於MA5位置 (1=上方, 0=下方)', fontsize=14)
         plt.ylabel('位置', fontsize=12)
         plt.xlabel('日期', fontsize=12)

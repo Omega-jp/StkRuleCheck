@@ -459,15 +459,15 @@ def create_wave_debug_chart(stock_id, recent_df, trend_history, wave_points_iden
         turning_highs = recent_df[recent_df['turning_high_point'] == 'O']
         if len(turning_highs) > 0:
             plt.scatter(turning_highs.index, turning_highs['High'],
-                       facecolors='none', edgecolors='red', marker='^', s=90,
-                       linewidths=1.2, label='轉折高點', zorder=10)
+                       color='red', marker='^', s=60,
+                       alpha=0.6, label='轉折高點', zorder=10)
 
         # 標記轉折低點（小綠三角）
         turning_lows = recent_df[recent_df['turning_low_point'] == 'O']
         if len(turning_lows) > 0:
             plt.scatter(turning_lows.index, turning_lows['Low'],
-                       facecolors='none', edgecolors='green', marker='v', s=90,
-                       linewidths=1.2, label='轉折低點', zorder=10)
+                       color='green', marker='v', s=60,
+                       alpha=0.6, label='轉折低點', zorder=10)
 
         # 依序連接轉折高低點，呈現波段折線
         turning_sequence = []
@@ -629,5 +629,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

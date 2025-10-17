@@ -1,10 +1,14 @@
 import math
+from typing import Optional
+
 import pandas as pd
 from ..baseRule.turning_point_identification import identify_turning_points
+from ..baseRule.wave_point_identification import identify_wave_points
 from .long_term_descending_trendline import identify_long_term_descending_trendlines
 
 def check_breakthrough_descending_trendline_buy_rule(df: pd.DataFrame, 
                                                    turning_points_df: pd.DataFrame = None,
+                                                   wave_points_df: pd.DataFrame = None,
                                                    min_days_long_term: int = 180,
                                                    min_points_short_term: int = 3,
                                                    volume_confirmation: bool = True,
@@ -23,6 +27,7 @@ def check_breakthrough_descending_trendline_buy_rule(df: pd.DataFrame,
     Args:
         df (pd.DataFrame): 包含K線數據的DataFrame，需要包含 'Close', 'High', 'Low'，可選 'Volume' 列
         turning_points_df (pd.DataFrame, optional): 轉折點識別結果
+        wave_points_df (pd.DataFrame, optional): 波段點識別結果（若已預先計算）
         min_days_long_term (int): 長期趨勢線的最小天數定義，預設180天
         min_points_short_term (int): 短期趨勢線所需最小點數，預設3
         volume_confirmation (bool): 是否需要成交量確認，預設True
@@ -47,9 +52,11 @@ def check_breakthrough_descending_trendline_buy_rule(df: pd.DataFrame,
             df['ma5'] = df['Close'].rolling(window=5, min_periods=1).mean()
         turning_points_df = identify_turning_points(df)
     
+    trendline_points_df = _prepare_trendline_points(df, turning_points_df, wave_points_df)
+
     # 識別下降趨勢線
     trendlines = identify_long_term_descending_trendlines(
-        df, turning_points_df, min_days_long_term, min_points_short_term
+        df, trendline_points_df, min_days_long_term, min_points_short_term
     )
     
     results = []
@@ -144,6 +151,96 @@ def check_breakthrough_descending_trendline_buy_rule(df: pd.DataFrame,
         })
     
     return pd.DataFrame(results)
+
+def _prepare_trendline_points(
+    df: pd.DataFrame,
+    turning_points_df: Optional[pd.DataFrame],
+    wave_points_df: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Return the pivot dataframe used for trendline detection."""
+    normalized_wave_points = _normalize_wave_points_df(wave_points_df)
+    if not normalized_wave_points.empty:
+        return normalized_wave_points
+
+    generated_wave_points = _build_wave_points_from_turning(df, turning_points_df)
+    if not generated_wave_points.empty:
+        return generated_wave_points
+
+    if turning_points_df is not None and not turning_points_df.empty:
+        fallback = turning_points_df.copy()
+        for col in ["date", "turning_high_point", "turning_low_point"]:
+            if col not in fallback.columns:
+                fallback[col] = ""
+        return fallback[["date", "turning_high_point", "turning_low_point"]]
+
+    return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+
+def _normalize_wave_points_df(wave_points_df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if wave_points_df is None or wave_points_df.empty:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    normalized = wave_points_df.copy()
+    if "date" not in normalized.columns:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    normalized["date"] = pd.to_datetime(normalized["date"], errors="coerce")
+    normalized = normalized.dropna(subset=["date"])
+    if normalized.empty:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    normalized["date"] = normalized["date"].dt.strftime("%Y-%m-%d")
+    normalized = normalized.rename(
+        columns={
+            "wave_high_point": "turning_high_point",
+            "wave_low_point": "turning_low_point",
+        }
+    )
+
+    for col in ["turning_high_point", "turning_low_point"]:
+        if col not in normalized.columns:
+            normalized[col] = ""
+        else:
+            normalized[col] = normalized[col].fillna("")
+
+    return normalized[["date", "turning_high_point", "turning_low_point"]]
+
+
+def _build_wave_points_from_turning(
+    df: pd.DataFrame, turning_points_df: Optional[pd.DataFrame]
+) -> pd.DataFrame:
+    if turning_points_df is None or turning_points_df.empty:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    if "date" not in turning_points_df.columns:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    working_df = df.copy()
+    if not isinstance(working_df.index, pd.DatetimeIndex):
+        working_df.index = pd.to_datetime(working_df.index, errors="coerce")
+
+    turning_points = turning_points_df.copy()
+    turning_points["date"] = pd.to_datetime(turning_points["date"], errors="coerce")
+    turning_points = turning_points.dropna(subset=["date"])
+    if turning_points.empty:
+        return pd.DataFrame(columns=["date", "turning_high_point", "turning_low_point"])
+
+    turning_points = turning_points.set_index("date")
+    columns = [
+        col for col in ["turning_high_point", "turning_low_point"] if col in turning_points.columns
+    ]
+    turning_subset = turning_points[columns] if columns else pd.DataFrame(index=turning_points.index)
+
+    working_df = working_df.join(turning_subset, how="left")
+    for col in ["turning_high_point", "turning_low_point"]:
+        if col not in working_df.columns:
+            working_df[col] = ""
+        else:
+            working_df[col] = working_df[col].fillna("")
+
+    wave_points = identify_wave_points(working_df)
+    return _normalize_wave_points_df(wave_points)
+
 
 
 def _select_best_breakthrough(valid_breakthroughs: list) -> dict:

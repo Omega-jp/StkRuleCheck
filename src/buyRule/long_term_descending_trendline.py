@@ -3,6 +3,7 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+from ..baseRule.trendline_utils import segment_respects_line
 
 
 def identify_long_term_descending_trendlines(
@@ -113,6 +114,9 @@ def _find_long_term_lines(
                 continue
 
             intercept = point1["price"] - slope * point1["idx"]
+            if not segment_respects_line(df, point1["idx"], point2["idx"], slope, intercept):
+                continue
+
             r_squared = _segment_r_squared(df, point1["idx"], point2["idx"], slope, intercept)
             key = (point1["idx"], point2["idx"])
             if key in seen_pairs:
@@ -168,6 +172,9 @@ def _find_short_term_lines(
             y = np.array([point["price"] for point in segment], dtype=float)
             slope, intercept = np.polyfit(x, y, 1)
             if slope >= 0:
+                continue
+
+            if not segment_respects_line(df, start_idx, end_idx, slope, intercept):
                 continue
 
             r_squared = _segment_r_squared(df, start_idx, end_idx, slope, intercept)
@@ -236,6 +243,7 @@ def _calculate_days_span(df: pd.DataFrame, start_idx: int, end_idx: int) -> int:
 
 def _is_strictly_descending(points: List[dict]) -> bool:
     return all(points[i + 1]["price"] <= points[i]["price"] for i in range(len(points) - 1))
+
 
 
 def _segment_r_squared(

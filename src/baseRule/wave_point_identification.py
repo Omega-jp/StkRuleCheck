@@ -3,51 +3,186 @@ import numpy as np
 
 
 def _remove_consecutive_wave_points(result_df: pd.DataFrame, price_df: pd.DataFrame) -> pd.DataFrame:
-    if result_df.empty:
+    """Ensure wave highs / lows alternate by dropping weaker duplicates."""
+    if result_df is None or result_df.empty:
         return result_df
 
-    clean_df = result_df.copy().sort_values("date").reset_index(drop=True)
-    price_df = price_df.copy()
-    if not isinstance(price_df.index, pd.DatetimeIndex):
-        price_df.index = pd.to_datetime(price_df.index)
+    working = result_df.copy()
+    working["date"] = pd.to_datetime(working["date"], errors="coerce")
+    working = working.sort_values("date").reset_index(drop=True)
 
-    last_kind = None
-    last_idx = None
+    if price_df is None or price_df.empty:
+        return working
 
-    for idx, row in clean_df.iterrows():
-        flag = None
+    price_data = price_df.copy()
+    if not isinstance(price_data.index, pd.DatetimeIndex):
+        price_data = price_data.copy()
+        price_data.index = pd.to_datetime(price_data.index, errors="coerce")
+
+    if "High" not in price_data.columns or "Low" not in price_data.columns:
+        return working
+
+    last_kind: str | None = None
+    last_idx: int | None = None
+    last_price: float | None = None
+
+    def _get_price(col: str, ts: pd.Timestamp) -> float | None:
+        if pd.isna(ts):
+            return None
+        try:
+            if ts not in price_data.index:
+                return None
+            value = price_data.loc[ts, col]
+        except Exception:
+            return None
+        if isinstance(value, pd.Series):
+            value = value.iloc[0]
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    for idx, row in working.iterrows():
+        current_date = row["date"]
+        if pd.isna(current_date):
+            continue
+
         if row.get("wave_high_point") == "O":
-            flag = "high"
-        elif row.get("wave_low_point") == "O":
-            flag = "low"
-        if flag is None:
-            continue
+            current_price = _get_price("High", current_date)
+            if last_kind == "high" and last_idx is not None and last_price is not None and current_price is not None:
+                if current_price >= last_price:
+                    working.at[last_idx, "wave_high_point"] = ""
+                    last_idx = idx
+                    last_price = current_price
+                else:
+                    working.at[idx, "wave_high_point"] = ""
+            else:
+                last_kind = "high"
+                last_idx = idx
+                last_price = current_price
 
-        date = pd.to_datetime(row["date"], errors="coerce")
-        if pd.isna(date) or date not in price_df.index:
-            continue
+        if row.get("wave_low_point") == "O":
+            current_price = _get_price("Low", current_date)
+            if last_kind == "low" and last_idx is not None and last_price is not None and current_price is not None:
+                if current_price <= last_price:
+                    working.at[last_idx, "wave_low_point"] = ""
+                    last_idx = idx
+                    last_price = current_price
+                else:
+                    working.at[idx, "wave_low_point"] = ""
+            else:
+                last_kind = "low"
+                last_idx = idx
+                last_price = current_price
 
-        if last_kind is None or last_kind != flag:
-            last_kind = flag
-            last_idx = idx
-            continue
+    # Re-score highs/lows to prefer more extreme turning points between opposite waves
+    working["date_ts"] = working["date"]
 
-        last_date = pd.to_datetime(clean_df.loc[last_idx, "date"], errors="coerce")
-        if pd.isna(last_date) or last_date not in price_df.index:
-            last_kind = flag
-            last_idx = idx
-            continue
-
-        if flag == "high":
-            clean_df.loc[last_idx, "wave_high_point"] = ""
-            last_idx = idx
+    def _relocate_wave(kind: str, current_idx: int, target_date: pd.Timestamp) -> int:
+        if pd.isna(target_date):
+            return current_idx
+        if kind == "high":
+            working.at[current_idx, "wave_high_point"] = ""
         else:
-            clean_df.loc[last_idx, "wave_low_point"] = ""
-            last_idx = idx
+            working.at[current_idx, "wave_low_point"] = ""
 
-        last_kind = flag
+        match_idx = working.index[working["date_ts"] == target_date]
+        if len(match_idx) == 0:
+            # Ensure the row exists by appending a blank record (rare but defensive)
+            new_record = {
+                "date": target_date,
+                "wave_high_point": "O" if kind == "high" else "",
+                "wave_low_point": "O" if kind == "low" else "",
+                "trend": None,
+                "date_ts": target_date,
+            }
+            working.loc[len(working)] = new_record
+            working.sort_values("date_ts", inplace=True, ignore_index=True)
+            return int(working.index[working["date_ts"] == target_date][0])
 
-    return clean_df.set_index(result_df.index.name or clean_df.index)
+        target_idx = int(match_idx[0])
+        if kind == "high":
+            working.at[target_idx, "wave_high_point"] = "O"
+        else:
+            working.at[target_idx, "wave_low_point"] = "O"
+        return target_idx
+
+    ordered_points: list[tuple[str, int]] = []
+    for idx, row in working.iterrows():
+        if row.get("wave_high_point") == "O":
+            ordered_points.append(("high", idx))
+        elif row.get("wave_low_point") == "O":
+            ordered_points.append(("low", idx))
+
+    price_data_sorted = price_data.sort_index()
+
+    for i, (kind, idx_pos) in enumerate(ordered_points):
+        current_date = working.at[idx_pos, "date_ts"]
+        if pd.isna(current_date):
+            continue
+
+        prev_boundary = None
+        next_boundary = None
+
+        if kind == "high":
+            for j in range(i - 1, -1, -1):
+                if ordered_points[j][0] == "low":
+                    prev_boundary = working.at[ordered_points[j][1], "date_ts"]
+                    break
+            for j in range(i + 1, len(ordered_points)):
+                if ordered_points[j][0] == "low":
+                    next_boundary = working.at[ordered_points[j][1], "date_ts"]
+                    break
+
+            mask = pd.Series(True, index=price_data_sorted.index)
+            if prev_boundary is not None:
+                mask &= pd.Series(price_data_sorted.index > prev_boundary, index=price_data_sorted.index)
+            if next_boundary is not None:
+                mask &= pd.Series(price_data_sorted.index < next_boundary, index=price_data_sorted.index)
+
+            if "turning_high_point" in price_data_sorted.columns:
+                mask &= price_data_sorted["turning_high_point"] == "O"
+
+            if mask.any():
+                candidates = price_data_sorted.loc[mask]
+                if not candidates.empty:
+                    best_idx = candidates["High"].astype(float).idxmax()
+                    if pd.notna(best_idx) and best_idx != current_date:
+                        new_idx_pos = _relocate_wave("high", idx_pos, best_idx)
+                        ordered_points[i] = ("high", new_idx_pos)
+
+        else:  # kind == "low"
+            for j in range(i - 1, -1, -1):
+                if ordered_points[j][0] == "high":
+                    prev_boundary = working.at[ordered_points[j][1], "date_ts"]
+                    break
+            for j in range(i + 1, len(ordered_points)):
+                if ordered_points[j][0] == "high":
+                    next_boundary = working.at[ordered_points[j][1], "date_ts"]
+                    break
+
+            mask = pd.Series(True, index=price_data_sorted.index)
+            if prev_boundary is not None:
+                mask &= pd.Series(price_data_sorted.index > prev_boundary, index=price_data_sorted.index)
+            if next_boundary is not None:
+                mask &= pd.Series(price_data_sorted.index <= next_boundary, index=price_data_sorted.index)
+
+            if "turning_low_point" in price_data_sorted.columns:
+                mask &= price_data_sorted["turning_low_point"] == "O"
+
+            if mask.any():
+                candidates = price_data_sorted.loc[mask]
+                if not candidates.empty:
+                    best_idx = candidates["Low"].astype(float).idxmin()
+                    if pd.notna(best_idx) and best_idx != current_date:
+                        new_idx_pos = _relocate_wave("low", idx_pos, best_idx)
+                        ordered_points[i] = ("low", new_idx_pos)
+
+    working.sort_values("date_ts", inplace=True, ignore_index=True)
+    working["date"] = working["date_ts"].dt.strftime("%Y-%m-%d")
+    working = working.drop(columns=["date_ts"])
+    return working
+
 
 def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
     """識別波段高低點。基於 turning_point_identification 的輸出。"""
@@ -153,7 +288,7 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                 if pivot_dt not in wave_high_dates:
                     promote_wave(pivot_dt, 'high')
                 current_trend = 'down'
-                downtrend_low_points = [(support_dt, support_value)]
+                downtrend_low_points = []
                 pending_downtrend_high = None
                 consolidation_high_points.clear()
                 consolidation_low_points.clear()
@@ -168,7 +303,7 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                 if pivot_dt not in wave_low_dates:
                     promote_wave(pivot_dt, 'low')
                 current_trend = 'up'
-                uptrend_high_points = [(resistance_dt, resistance_value)]
+                uptrend_high_points = []
                 pending_uptrend_low = None
                 consolidation_high_points.clear()
                 consolidation_low_points.clear()
@@ -223,6 +358,8 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                 promote_wave(candidate_low[0], 'low')
             if new_trend == 'consolidation':
                 trend_before_consolidation_low_points = downtrend_low_points.copy()
+                if (not trend_before_consolidation_low_points) and low_points:
+                    trend_before_consolidation_low_points = [low_points[-1]]
             pending_uptrend_low = None
             downtrend_low_points = []
 
@@ -238,6 +375,7 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                     if pivot_dt not in wave_high_dates:
                         promote_wave(pivot_dt, 'high')
                 pending_downtrend_high = None
+                downtrend_low_points = list(consolidation_low_points)
             elif new_trend == 'up':
                 candidates = []
                 candidates.extend(trend_before_consolidation_low_points)
@@ -249,6 +387,7 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                     if pivot_dt not in wave_low_dates:
                         promote_wave(pivot_dt, 'low')
                 pending_uptrend_low = None
+                uptrend_high_points = list(consolidation_high_points)
             consolidation_high_points = []
             consolidation_low_points = []
             trend_before_consolidation_high_points = []

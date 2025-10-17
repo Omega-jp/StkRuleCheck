@@ -495,20 +495,31 @@ def create_wave_debug_chart(stock_id, recent_df, trend_history, wave_points_iden
                         alpha=0.6, zorder=9, label='_nolegend_')
 
         # 整理波段高低點（含原始演算法結果）
-        resolved_wave_points = {}
-        for kind, date, price in wave_points_identified:
-            resolved_wave_points[(kind, date)] = price
+        wave_points_for_plot = []
+        if wave_points_identified:
+            for kind, date, price in wave_points_identified:
+                date_ts = pd.to_datetime(date) if not isinstance(date, pd.Timestamp) else date
+                wave_points_for_plot.append((kind, date_ts, float(price)))
 
-        if 'wave_high_point' in recent_df.columns or 'wave_low_point' in recent_df.columns:
-            for date, row in recent_df.iterrows():
-                if row.get('wave_high_point') == 'O':
-                    resolved_wave_points.setdefault(('high', date), recent_df.loc[date, 'High'])
-                if row.get('wave_low_point') == 'O':
-                    resolved_wave_points.setdefault(('low', date), recent_df.loc[date, 'Low'])
+        if wave_points_for_plot:
+            wave_points_for_plot.sort(key=lambda x: x[1])
+        else:
+            resolved_wave_points = {}
+            for kind, date, price in wave_points_identified:
+                date_ts = pd.to_datetime(date) if not isinstance(date, pd.Timestamp) else date
+                resolved_wave_points[(kind, date_ts)] = float(price)
 
-        raw_wave_points = [
-            (kind, date, price) for (kind, date), price in resolved_wave_points.items()
-        ]
+            if 'wave_high_point' in recent_df.columns or 'wave_low_point' in recent_df.columns:
+                for date, row in recent_df.iterrows():
+                    if row.get('wave_high_point') == 'O':
+                        resolved_wave_points.setdefault(('high', date), recent_df.loc[date, 'High'])
+                    if row.get('wave_low_point') == 'O':
+                        resolved_wave_points.setdefault(('low', date), recent_df.loc[date, 'Low'])
+
+            raw_wave_points = [(kind, date, price) for (kind, date), price in resolved_wave_points.items()]
+            wave_points_for_plot = sorted(raw_wave_points, key=lambda x: x[1])
+
+        raw_wave_points = wave_points_for_plot
         wave_points_for_plot = _enforce_wave_alternation(raw_wave_points)
 
         wave_high_points = [wp for wp in wave_points_for_plot if wp[0] == 'high']

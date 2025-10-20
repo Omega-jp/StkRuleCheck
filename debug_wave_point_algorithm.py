@@ -10,9 +10,79 @@ import numpy as np
 import os
 import sys
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as font_manager
 
 # 添加src目錄到Python路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+
+_configured_font_family = None
+_registered_wave_fonts = False
+
+
+def _register_wave_fonts():
+    """Register bundled CJK fonts so matplotlib can render labels without warnings."""
+    global _registered_wave_fonts
+    if _registered_wave_fonts:
+        return
+
+    local_font_paths = [
+        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'NotoSansCJKtc-Regular.otf'),
+    ]
+
+    for font_path in local_font_paths:
+        if os.path.isfile(font_path):
+            font_manager.fontManager.addfont(font_path)
+
+    _registered_wave_fonts = True
+
+
+def _wave_font_available(font_family: str) -> bool:
+    """Check whether matplotlib can resolve the given font family."""
+    try:
+        prop = font_manager.FontProperties(family=font_family)
+        font_manager.findfont(prop, fallback_to_default=False)
+        return True
+    except (ValueError, RuntimeError):
+        return False
+
+
+def _ensure_wave_plot_fonts():
+    """Select a usable sans-serif font that supports zh-TW characters."""
+    global _configured_font_family
+    if _configured_font_family:
+        return _configured_font_family
+
+    _register_wave_fonts()
+
+    preferred_order = [
+        'Microsoft JhengHei',
+        'Arial Unicode MS',
+        'SimHei',
+        'Noto Sans CJK TC',
+        'Noto Sans CJK SC',
+        'PingFang TC',
+        'PingFang SC',
+        'Heiti TC',
+        'Heiti SC',
+        'STHeiti',
+        'WenQuanYi Zen Hei',
+        'Source Han Sans TC',
+        'Source Han Sans SC',
+        'DejaVu Sans',
+    ]
+
+    for family in preferred_order:
+        if _wave_font_available(family):
+            plt.rcParams['font.sans-serif'] = [family]
+            _configured_font_family = family
+            break
+    else:
+        default_family = plt.rcParams.get('font.sans-serif', ['DejaVu Sans'])
+        _configured_font_family = default_family[0] if default_family else 'DejaVu Sans'
+
+    plt.rcParams['axes.unicode_minus'] = False
+    return _configured_font_family
 
 
 def debug_wave_point_execution(stock_id='2330', days=120):
@@ -410,9 +480,10 @@ def create_wave_debug_chart(stock_id, recent_df, trend_history, wave_points_iden
     創建波段診斷圖表
     """
     try:
+        chosen_font = _ensure_wave_plot_fonts()
         plt.figure(figsize=(20, 12))
-        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS', 'SimHei']
-        plt.rcParams['axes.unicode_minus'] = False
+        if chosen_font not in plt.rcParams.get('font.sans-serif', []):
+            plt.rcParams['font.sans-serif'] = [chosen_font]
         
         # === 主圖：K線 + 轉折點 + 波段點 ===
         plt.subplot(2, 1, 1)

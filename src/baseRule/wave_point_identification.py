@@ -179,6 +179,62 @@ def _remove_consecutive_wave_points(result_df: pd.DataFrame, price_df: pd.DataFr
                         ordered_points[i] = ("low", new_idx_pos)
 
     working.sort_values("date_ts", inplace=True, ignore_index=True)
+
+    if price_data is not None and not price_data.empty and "turning_low_point" in price_data.columns:
+        price_data_sorted = price_data.sort_index()
+        active_indices = [
+            idx for idx, row in working.iterrows()
+            if row.get("wave_high_point") == "O" or row.get("wave_low_point") == "O"
+        ]
+        k = 0
+        while k + 2 < len(active_indices):
+            idx_high1 = active_indices[k]
+            idx_mid = active_indices[k + 1]
+            idx_high2 = active_indices[k + 2]
+
+            row_high1 = working.loc[idx_high1]
+            row_low = working.loc[idx_mid]
+            row_high2 = working.loc[idx_high2]
+
+            if (
+                row_high1.get("wave_high_point") == "O"
+                and row_low.get("wave_low_point") == "O"
+                and row_high2.get("wave_high_point") == "O"
+            ):
+                start_ts = row_high1.get("date_ts")
+                end_ts = row_high2.get("date_ts")
+                if pd.notna(start_ts) and pd.notna(end_ts):
+                    segment = price_data_sorted.loc[
+                        (price_data_sorted.index >= start_ts)
+                        & (price_data_sorted.index <= end_ts)
+                    ]
+                    low_count = int(
+                        segment["turning_low_point"].fillna("").eq("O").sum()
+                    ) if not segment.empty else 0
+                    if low_count <= 1:
+                        first_price = _get_price("High", start_ts)
+                        second_price = _get_price("High", end_ts)
+
+                        drop_high_idx = idx_high2
+                        if second_price is None or (
+                            first_price is not None and first_price >= second_price
+                        ):
+                            drop_high_idx = idx_high2
+                        else:
+                            drop_high_idx = idx_high1
+
+                        working.at[drop_high_idx, "wave_high_point"] = ""
+                        working.at[idx_mid, "wave_low_point"] = ""
+
+                        working = working.copy()
+                        active_indices = [
+                            idx for idx, row in working.iterrows()
+                            if row.get("wave_high_point") == "O" or row.get("wave_low_point") == "O"
+                        ]
+                        k = max(k - 2, 0)
+                        continue
+            k += 1
+
     working["date"] = working["date_ts"].dt.strftime("%Y-%m-%d")
     working = working.drop(columns=["date_ts"])
     return working
@@ -251,6 +307,18 @@ def identify_wave_points(df: pd.DataFrame) -> pd.DataFrame:
                 uptrend_high_points.append((idx, row['High']))
             elif current_trend == 'consolidation':
                 consolidation_high_points.append((idx, row['High']))
+
+            if low_points and current_trend in (None, 'up', 'consolidation'):
+                latest_support = low_points[-1]
+                latest_high = high_points[-1]
+                if (
+                    pending_downtrend_high is None
+                    or latest_high[0] >= pending_downtrend_high['pivot'][0]
+                ):
+                    pending_downtrend_high = {
+                        'pivot': latest_high,
+                        'support': latest_support,
+                    }
 
             if len(high_points) >= 2 and low_points:
                 prev_high = high_points[-2]

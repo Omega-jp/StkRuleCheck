@@ -10,6 +10,7 @@ import numpy as np
 import os
 import sys
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as font_manager
 
 # 添加src目錄到Python路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -312,14 +313,85 @@ def debug_turning_point_execution(stock_id='2330', days=60):
         return False
 
 
+_configured_font_family = None
+_registered_local_fonts = False
+
+
+def _register_local_fonts():
+    """Register bundled font files (if any) with matplotlib's font manager."""
+    global _registered_local_fonts
+    if _registered_local_fonts:
+        return
+
+    local_font_paths = [
+        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'NotoSansCJKtc-Regular.otf'),
+    ]
+
+    for font_path in local_font_paths:
+        if os.path.isfile(font_path):
+            font_manager.fontManager.addfont(font_path)
+
+    _registered_local_fonts = True
+
+
+def _font_is_available(font_family: str) -> bool:
+    """Return True if matplotlib can locate the requested font family."""
+    try:
+        prop = font_manager.FontProperties(family=font_family)
+        font_manager.findfont(prop, fallback_to_default=False)
+        return True
+    except (ValueError, RuntimeError):
+        return False
+
+
+def _ensure_plot_fonts():
+    """Pick a font family that exists on this machine so Unicode text renders cleanly."""
+    global _configured_font_family
+    if _configured_font_family:
+        return _configured_font_family
+
+    _register_local_fonts()
+
+    preferred_order = [
+        'Microsoft JhengHei',
+        'Arial Unicode MS',
+        'SimHei',
+        'Noto Sans CJK TC',
+        'Noto Sans CJK SC',
+        'PingFang TC',
+        'PingFang SC',
+        'Heiti TC',
+        'Heiti SC',
+        'STHeiti',
+        'WenQuanYi Zen Hei',
+        'Source Han Sans TC',
+        'Source Han Sans SC',
+        'DejaVu Sans',
+    ]
+
+    for family in preferred_order:
+        if _font_is_available(family):
+            plt.rcParams['font.sans-serif'] = [family]
+            _configured_font_family = family
+            break
+    else:
+        # Fall back to the default sans-serif family if nothing matched.
+        default_family = plt.rcParams.get('font.sans-serif', ['DejaVu Sans'])
+        _configured_font_family = default_family[0] if default_family else 'DejaVu Sans'
+
+    plt.rcParams['axes.unicode_minus'] = False
+    return _configured_font_family
+
+
 def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_points):
     """
     創建診斷圖表
     """
     try:
+        chosen_font = _ensure_plot_fonts()
         plt.figure(figsize=(20, 14))
-        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS', 'SimHei']
-        plt.rcParams['axes.unicode_minus'] = False
+        if chosen_font not in plt.rcParams.get('font.sans-serif', []):
+            plt.rcParams['font.sans-serif'] = [chosen_font]
         
         # 主圖：K線圖 + MA5 + 穿越點 + 轉折點
         plt.subplot(3, 1, 1)
@@ -364,14 +436,70 @@ def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_poi
         
         # 標記轉折點並連線
         ordered_turning = sorted(identified_turning_points, key=lambda x: x[0])
+        high_series = recent_df['High'].dropna() if 'High' in recent_df.columns else pd.Series(dtype=float)
+        low_series = recent_df['Low'].dropna() if 'Low' in recent_df.columns else pd.Series(dtype=float)
+        chart_range = float(high_series.max() - low_series.min()) if not high_series.empty and not low_series.empty else 0.0
+        if chart_range <= 0:
+            close_series = recent_df['Close'].dropna() if 'Close' in recent_df.columns else pd.Series(dtype=float)
+            if not close_series.empty:
+                chart_range = float(close_series.max() - close_series.min())
+        base_marker_offset = chart_range * 0.005 if chart_range and chart_range > 0 else 0.1
+        # Control how wide and tall the outline triangles are relative to the price offset.
+        triangle_width = pd.Timedelta(days=0.28)
+
         for idx_tp, (date, point_type, price) in enumerate(ordered_turning):
             color = 'darkred' if point_type == 'high' else 'darkblue'
-            marker = '^' if point_type == 'high' else 'v'
             first_same = all(ordered_turning[j][1] != point_type for j in range(idx_tp))
-            plt.scatter([date], [price],
-                       facecolors='none', edgecolors=color, marker=marker, s=170,
-                       label=('轉折高點' if point_type == 'high' else '轉折低點') if first_same else '',
-                       linewidths=1.5, zorder=15)
+            
+            row_data = None
+            if date in recent_df.index:
+                row_data = recent_df.loc[date]
+                if isinstance(row_data, pd.DataFrame):
+                    row_data = row_data.iloc[-1]
+            
+            if row_data is not None:
+                row_high = float(row_data['High']) if 'High' in row_data and pd.notna(row_data['High']) else float(price)
+                row_low = float(row_data['Low']) if 'Low' in row_data and pd.notna(row_data['Low']) else float(price)
+            else:
+                row_high = float(price)
+                row_low = float(price)
+            
+            candle_range = float(row_high - row_low)
+            per_point_offset = max(base_marker_offset, candle_range * 0.2) if candle_range > 0 else base_marker_offset
+            
+            # Build generous vertical clearance so triangle outlines never sit on top of the candle.
+            clearance_candidates = [per_point_offset * 1.4, base_marker_offset * 1.8]
+            marker_height_candidates = [per_point_offset * 1.6, base_marker_offset * 2.2]
+            if chart_range and chart_range > 0:
+                clearance_candidates.append(chart_range * 0.012)
+                marker_height_candidates.append(chart_range * 0.018)
+            if candle_range > 0:
+                clearance_candidates.append(candle_range * 0.45)
+                marker_height_candidates.append(candle_range * 0.75)
+
+            candle_clearance = max(clearance_candidates) if clearance_candidates else base_marker_offset * 2.0
+            marker_height = max(marker_height_candidates) if marker_height_candidates else candle_clearance * 0.9
+
+            if point_type == 'high':
+                anchor_price = row_high
+                triangle_base = anchor_price + candle_clearance
+                tip_price = triangle_base + marker_height
+            else:
+                anchor_price = row_low
+                triangle_base = anchor_price - candle_clearance
+                tip_price = triangle_base - marker_height
+
+            x_points = [date, date - triangle_width, date + triangle_width]
+            y_points = [tip_price, triangle_base, triangle_base]
+            
+            # Draw a light connector so readers can still spot the exact price level
+            plt.vlines(date, anchor_price, triangle_base,
+                       colors=color, linestyles='dotted', linewidth=1,
+                       alpha=0.7, zorder=14)
+            
+            plt.fill(x_points, y_points,
+                     fill=False, edgecolor=color, linewidth=1.5, zorder=15,
+                     label=('轉折高點' if point_type == 'high' else '轉折低點') if first_same else None)
 
         if len(ordered_turning) > 1:
             turning_dates = [tp[0] for tp in ordered_turning]

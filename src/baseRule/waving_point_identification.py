@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 趨勢波偵測程式 (Waving Point Identification)
-根據轉折點識別趨勢波，並標記波段高點和波段低點
+根據轉折點識別趨勢波,並標記波段高點和波段低點
 """
 
 import pandas as pd
@@ -138,7 +138,14 @@ class WavingPointIdentifier:
             self.log(f"處理轉折點 {i+1}/{len(turning_points)}: {tp}")
             self.log(f"當前趨勢: {self.state.current_trend.value}")
             
-            # 更新轉折點歷史
+            # ✅ 先檢查待確認的反轉
+            if self.pending.active:
+                self._check_pending_reversal(tp, df, result)
+            
+            # ✅ 再檢查趨勢反轉條件（使用舊的歷史記錄）
+            self._check_trend_reversal(tp, df, result)
+            
+            # ✅ 最後更新轉折點歷史
             if tp.point_type == 'high':
                 self.state.recent_high_points.append(tp)
                 if len(self.state.recent_high_points) > 3:
@@ -147,13 +154,6 @@ class WavingPointIdentifier:
                 self.state.recent_low_points.append(tp)
                 if len(self.state.recent_low_points) > 3:
                     self.state.recent_low_points.pop(0)
-            
-            # 檢查是否有待確認的反轉
-            if self.pending.active:
-                self._check_pending_reversal(tp, df, result)
-            
-            # 檢查趨勢反轉條件
-            self._check_trend_reversal(tp, df, result)
             
             # 更新當前行的趨勢類型
             date_str = tp.date.strftime('%Y-%m-%d')
@@ -222,7 +222,7 @@ class WavingPointIdentifier:
         
         # 情況3：無趨勢或盤整時，建立初始趨勢
         elif self.state.current_trend in [TrendType.NONE, TrendType.CONSOLIDATION]:
-            self._establish_initial_trend(current_tp)
+            self._establish_initial_trend(current_tp, df, result)
     
     def _check_down_to_up_reversal(self, current_tp: TurningPoint, df: pd.DataFrame, result: pd.DataFrame):
         """
@@ -244,7 +244,9 @@ class WavingPointIdentifier:
         # L1 = 前一個低點
         L1 = self.state.recent_low_points[-2] if len(self.state.recent_low_points) >= 2 else None
         
-        self.log(f"檢查下降→上升反轉：Now={Now.price:.2f}, H1={H1.price:.2f}, L2={L2.price:.2f}, L1={L1.price:.2f if L1 else 'N/A'}")
+        # ✅ 修正：使用輔助變量處理 L1 可能為 None 的情況
+        l1_str = f"{L1.price:.2f}" if L1 is not None else 'N/A'
+        self.log(f"檢查下降→上升反轉：Now={Now.price:.2f}, H1={H1.price:.2f}, L2={L2.price:.2f}, L1={l1_str}")
         
         # 檢查是否突破前高
         if Now.price > H1.price:
@@ -307,7 +309,9 @@ class WavingPointIdentifier:
         # H1 = 前一個高點
         H1 = self.state.recent_high_points[-2] if len(self.state.recent_high_points) >= 2 else None
         
-        self.log(f"檢查上升→下降反轉：Now={Now.price:.2f}, L1={L1.price:.2f}, H2={H2.price:.2f}, H1={H1.price:.2f if H1 else 'N/A'}")
+        # ✅ 修正：使用輔助變量處理 H1 可能為 None 的情況
+        h1_str = f"{H1.price:.2f}" if H1 is not None else 'N/A'
+        self.log(f"檢查上升→下降反轉：Now={Now.price:.2f}, L1={L1.price:.2f}, H2={H2.price:.2f}, H1={h1_str}")
         
         # 檢查是否跌破前低
         if Now.price < L1.price:
@@ -528,28 +532,65 @@ class WavingPointIdentifier:
         
         self.log(f"✅ 波段高點已標記：{wave_date} (價格: {wave_price:.2f})")
     
-    def _establish_initial_trend(self, current_tp: TurningPoint):
-        """建立初始趨勢"""
-        if self.state.current_trend == TrendType.NONE:
-            self.log("初始化趨勢狀態")
-            # 暫時不設定趨勢，等待更多轉折點
+    def _establish_initial_trend(self, current_tp: TurningPoint, df: pd.DataFrame, result: pd.DataFrame):
+        """建立初始趨勢或從盤整狀態判斷新趨勢"""
+        if self.state.current_trend in [TrendType.NONE, TrendType.CONSOLIDATION]:
+            self.log("判斷趨勢狀態")
+            
+            # 等待足夠的轉折點
             if len(self.state.recent_high_points) >= 2 and len(self.state.recent_low_points) >= 2:
-                # 簡單判斷初始趨勢
                 latest_high = self.state.recent_high_points[-1]
                 prev_high = self.state.recent_high_points[-2]
                 latest_low = self.state.recent_low_points[-1]
                 prev_low = self.state.recent_low_points[-2]
                 
-                # 判斷趨勢
+                # 判斷趨勢：頭頭高且底底高 = 上升
                 if latest_high.price > prev_high.price and latest_low.price > prev_low.price:
+                    old_trend = self.state.current_trend
                     self.state.current_trend = TrendType.UP
-                    self.log("初始趨勢：上升")
+                    self.state.trend_start_date = current_tp.date
+                    
+                    if old_trend == TrendType.CONSOLIDATION:
+                        self.log(f"盤整→上升：頭頭高({prev_high.price:.2f}→{latest_high.price:.2f}) 且 底底高({prev_low.price:.2f}→{latest_low.price:.2f})")
+                        # 標記前一個低點為波段低點
+                        date_str = prev_low.date.strftime('%Y-%m-%d')
+                        result.loc[result['date'] == date_str, 'wave_low_point'] = 'O'
+                        self.state.last_wave_low = WavePoint(
+                            date=prev_low.date,
+                            price=prev_low.price,
+                            point_type='wave_low'
+                        )
+                        self.log(f"✅ 波段低點已標記：{date_str} (價格: {prev_low.price:.2f})")
+                    else:
+                        self.log("初始趨勢：上升")
+                
+                # 判斷趨勢：頭頭低且底底低 = 下降
                 elif latest_high.price < prev_high.price and latest_low.price < prev_low.price:
+                    old_trend = self.state.current_trend
                     self.state.current_trend = TrendType.DOWN
-                    self.log("初始趨勢：下降")
+                    self.state.trend_start_date = current_tp.date
+                    
+                    if old_trend == TrendType.CONSOLIDATION:
+                        self.log(f"盤整→下降：頭頭低({prev_high.price:.2f}→{latest_high.price:.2f}) 且 底底低({prev_low.price:.2f}→{latest_low.price:.2f})")
+                        # 標記前一個高點為波段高點
+                        date_str = prev_high.date.strftime('%Y-%m-%d')
+                        result.loc[result['date'] == date_str, 'wave_high_point'] = 'O'
+                        self.state.last_wave_high = WavePoint(
+                            date=prev_high.date,
+                            price=prev_high.price,
+                            point_type='wave_high'
+                        )
+                        self.log(f"✅ 波段高點已標記：{date_str} (價格: {prev_high.price:.2f})")
+                    else:
+                        self.log("初始趨勢：下降")
+                
+                # 其他情況：維持盤整
                 else:
-                    self.state.current_trend = TrendType.CONSOLIDATION
-                    self.log("初始趨勢：盤整")
+                    if self.state.current_trend == TrendType.NONE:
+                        self.state.current_trend = TrendType.CONSOLIDATION
+                        self.log("初始趨勢：盤整")
+                    else:
+                        self.log(f"維持盤整：頭({prev_high.price:.2f}→{latest_high.price:.2f}), 底({prev_low.price:.2f}→{latest_low.price:.2f})")
 
 
 def identify_waving_points(df: pd.DataFrame, turning_points_df: pd.DataFrame, 

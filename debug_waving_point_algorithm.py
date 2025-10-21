@@ -261,23 +261,23 @@ def create_waving_debug_chart(stock_id, recent_df, result_df, all_turning):
             
             # 繪製上下影線
             plt.plot([date, date], [low_price, high_price], 
-                    color='black', linewidth=0.8, alpha=0.8)
+                    color='black', linewidth=1.0, alpha=0.7, zorder=2)
             
             # 繪製實體K棒
             body_height = abs(close_price - open_price)
             body_bottom = min(open_price, close_price)
-            bar_width = pd.Timedelta(days=0.6)
+            bar_width = pd.Timedelta(days=0.4)  # 減小K線寬度
             
             if is_up:
                 rect = plt.Rectangle((date - bar_width/2, body_bottom), 
                                    bar_width, body_height, 
                                    facecolor='white', edgecolor='red', 
-                                   linewidth=1.2, alpha=0.9)
+                                   linewidth=1.5, alpha=1.0, zorder=3)
             else:
                 rect = plt.Rectangle((date - bar_width/2, body_bottom), 
                                    bar_width, body_height, 
-                                   facecolor='green', edgecolor='green', 
-                                   linewidth=1.2, alpha=0.9)
+                                   facecolor='#00AA00', edgecolor='#00AA00',  # 使用更鮮明的綠色
+                                   linewidth=1.5, alpha=1.0, zorder=3)
             
             plt.gca().add_patch(rect)
         
@@ -290,7 +290,7 @@ def create_waving_debug_chart(stock_id, recent_df, result_df, all_turning):
         high_series = recent_df['High']
         low_series = recent_df['Low']
         chart_range = float(high_series.max() - low_series.min())
-        base_offset = chart_range * 0.008 if chart_range > 0 else 0.1
+        base_offset = chart_range * 0.015 if chart_range > 0 else 0.1  # 增加偏移量
         
         turning_labeled = {'high': False, 'low': False}
         
@@ -302,22 +302,19 @@ def create_waving_debug_chart(stock_id, recent_df, result_df, all_turning):
             row_high = float(row_data['High'])
             row_low = float(row_data['Low'])
             
+            # ✅ 修正：根據類型決定位置和標籤
             if tp_type == 'high':
                 y_pos = row_high + base_offset * 2
-            else:
-                y_pos = row_low - base_offset * 2
-            
-            label_text = '轉折高點' if tp_type == 'high' and not turning_labeled['high'] else None
-            if tp_type == 'high':
+                label_text = '轉折高點' if not turning_labeled['high'] else None
                 turning_labeled['high'] = True
-            
-            label_text = '轉折低點' if tp_type == 'low' and not turning_labeled['low'] else None
-            if tp_type == 'low':
+            else:  # tp_type == 'low'
+                y_pos = row_low - base_offset * 2
+                label_text = '轉折低點' if not turning_labeled['low'] else None
                 turning_labeled['low'] = True
             
             plt.scatter([date], [y_pos], color=color, marker=marker, 
-                       s=150, alpha=0.9, zorder=10, label=label_text,
-                       edgecolors='white', linewidths=1.5)
+                       s=200, alpha=0.9, zorder=10, label=label_text,  # 增大標記尺寸
+                       edgecolors='white', linewidths=2)  # 增加邊框寬度
         
         # 標記波段點
         wave_highs = result_df[result_df['wave_high_point'] == 'O']
@@ -335,8 +332,8 @@ def create_waving_debug_chart(stock_id, recent_df, result_df, all_turning):
                 wave_labeled['high'] = True
                 
                 plt.scatter([date], [y_pos], color='red', marker='*', 
-                           s=400, alpha=1.0, zorder=15, label=label_text,
-                           edgecolors='darkred', linewidths=2)
+                           s=500, alpha=1.0, zorder=15, label=label_text,  # 增大波段點標記
+                           edgecolors='darkred', linewidths=2.5)
         
         for _, row in wave_lows.iterrows():
             date = pd.to_datetime(row['date'])
@@ -348,8 +345,8 @@ def create_waving_debug_chart(stock_id, recent_df, result_df, all_turning):
                 wave_labeled['low'] = True
                 
                 plt.scatter([date], [y_pos], color='blue', marker='*', 
-                           s=400, alpha=1.0, zorder=15, label=label_text,
-                           edgecolors='darkblue', linewidths=2)
+                           s=500, alpha=1.0, zorder=15, label=label_text,  # 增大波段點標記
+                           edgecolors='darkblue', linewidths=2.5)
         
         # 繪製趨勢背景
         trend_colors = {

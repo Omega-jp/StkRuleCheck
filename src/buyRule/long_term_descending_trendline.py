@@ -1,24 +1,37 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+長期下降趨勢線識別模組（基於波段高點）
+Modified to use wave high points instead of turning high points
+"""
+
 import math
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-from ..baseRule.trendline_utils import segment_respects_line
+from src.baseRule.trendline_utils import segment_respects_line
 
 
 def identify_long_term_descending_trendlines(
     df: pd.DataFrame,
-    turning_points_df: pd.DataFrame,
+    wave_points_df: pd.DataFrame,
     min_days_long_term: int = 180,
     min_points_short_term: int = 3,
 ) -> Dict[str, List[dict]]:
-    """Identify descending trendlines from supplied turning points.
+    """
+    識別下降趨勢線（基於波段高點）
+    
+    主要修改：
+    - 將 turning_points_df 改為 wave_points_df
+    - 使用 'wave_high_point' 欄位而非 'turning_high_point'
+    - 其他邏輯保持不變
 
     Args:
         df (pd.DataFrame): OHLC dataframe indexed by date and containing a ``High`` column.
-        turning_points_df (pd.DataFrame): Output from ``identify_turning_points``.
+        wave_points_df (pd.DataFrame): 波段點識別結果（包含 'wave_high_point' 欄位）
         min_days_long_term (int): Minimum calendar days for a long-term line.
-        min_points_short_term (int): Minimum turning points required for short-term regression lines.
+        min_points_short_term (int): Minimum wave points required for short-term regression lines.
 
     Returns:
         dict: ``{"long_term_lines": [...], "short_term_lines": [...], "all_lines": [...]}``.
@@ -26,14 +39,14 @@ def identify_long_term_descending_trendlines(
     if df is None or df.empty:
         return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
 
-    if turning_points_df is None or turning_points_df.empty:
+    if wave_points_df is None or wave_points_df.empty:
         return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
 
     if "High" not in df.columns:
         raise ValueError("DataFrame must contain 'High' column to build trendlines.")
 
     index_keys = _build_index_key_map(df.index)
-    high_points = _collect_high_turning_points(df, turning_points_df, index_keys)
+    high_points = _collect_high_wave_points(df, wave_points_df, index_keys)
 
     if len(high_points) < 2:
         return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
@@ -50,6 +63,7 @@ def identify_long_term_descending_trendlines(
 
 
 def _build_index_key_map(index: pd.Index) -> Dict[str, int]:
+    """建立日期索引映射"""
     if isinstance(index, pd.DatetimeIndex):
         keys = index.strftime("%Y-%m-%d")
     else:
@@ -57,14 +71,22 @@ def _build_index_key_map(index: pd.Index) -> Dict[str, int]:
     return {key: pos for pos, key in enumerate(keys)}
 
 
-def _collect_high_turning_points(
+def _collect_high_wave_points(
     df: pd.DataFrame,
-    turning_points_df: pd.DataFrame,
+    wave_points_df: pd.DataFrame,
     index_keys: Dict[str, int],
 ) -> List[dict]:
+    """
+    收集所有波段高點
+    
+    主要修改：
+    - 檢查 'wave_high_point' 欄位（而非 'turning_high_point'）
+    - 其他邏輯保持不變
+    """
     points: List[dict] = []
-    for _, row in turning_points_df.iterrows():
-        if row.get("turning_high_point") != "O":
+    for _, row in wave_points_df.iterrows():
+        # 關鍵修改：改為檢查 'wave_high_point'
+        if row.get("wave_high_point") != "O":
             continue
 
         date_value = row.get("date")
@@ -92,6 +114,15 @@ def _find_long_term_lines(
     high_points: List[dict],
     min_days_long_term: int,
 ) -> List[dict]:
+    """
+    找出長期兩點下降趨勢線
+    
+    邏輯：
+    1. 遍歷所有波段高點的兩兩組合
+    2. 檢查時間跨度 >= min_days_long_term (預設180天)
+    3. 檢查價格下降 (point2.price < point1.price)
+    4. 驗證區間內所有高點都不穿越趨勢線
+    """
     lines: List[dict] = []
     seen_pairs = set()
 
@@ -146,6 +177,16 @@ def _find_short_term_lines(
     min_days_long_term: int,
     min_points_short_term: int,
 ) -> List[dict]:
+    """
+    找出短期多點下降趨勢線
+    
+    邏輯：
+    1. 使用滑動窗口，從 min_points_short_term 開始
+    2. 檢查時間跨度 < min_days_long_term (短期)
+    3. 檢查價格嚴格遞減
+    4. 使用線性回歸擬合
+    5. 驗證區間內所有高點都不穿越趨勢線
+    """
     lines: List[dict] = []
     if len(high_points) < min_points_short_term:
         return lines
@@ -212,6 +253,7 @@ def _build_line(
     points: List[dict],
     days_span: int,
 ) -> dict:
+    """建立趨勢線數據結構"""
     start_date = pd.to_datetime(df.index[start_idx])
     end_date = pd.to_datetime(df.index[end_idx])
 
@@ -230,6 +272,7 @@ def _build_line(
 
 
 def _calculate_days_span(df: pd.DataFrame, start_idx: int, end_idx: int) -> int:
+    """計算時間跨度（天數）"""
     if end_idx <= start_idx:
         return 0
 
@@ -242,8 +285,8 @@ def _calculate_days_span(df: pd.DataFrame, start_idx: int, end_idx: int) -> int:
 
 
 def _is_strictly_descending(points: List[dict]) -> bool:
+    """檢查價格序列是否嚴格遞減"""
     return all(points[i + 1]["price"] <= points[i]["price"] for i in range(len(points) - 1))
-
 
 
 def _segment_r_squared(
@@ -253,6 +296,7 @@ def _segment_r_squared(
     slope: float,
     intercept: float,
 ) -> float:
+    """計算線性回歸的 R² 值"""
     if end_idx <= start_idx:
         return 1.0
 
@@ -269,3 +313,15 @@ def _segment_r_squared(
         return 1.0
 
     return max(0.0, 1.0 - ss_res / ss_tot)
+
+
+if __name__ == "__main__":
+    print("長期下降趨勢線識別模組（基於波段高點）")
+    print("=" * 60)
+    print("主要修改：")
+    print("  - 使用 wave_points_df 代替 turning_points_df")
+    print("  - 檢查 'wave_high_point' 欄位代替 'turning_high_point'")
+    print("  - 其他邏輯保持不變")
+    print("\n使用方式：")
+    print("  from long_term_descending_trendline import identify_long_term_descending_trendlines")
+    print("  trendlines = identify_long_term_descending_trendlines(df, wave_points_df)")

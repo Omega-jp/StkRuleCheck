@@ -69,7 +69,10 @@ def identify_descending_trendlines(
     wave_high_points = _collect_wave_high_points(df, wave_points_df, index_keys)
     
     if len(wave_high_points) < 2:
+        print(f"   ⚠️  波段高點數量不足（{len(wave_high_points)}個），無法繪製趨勢線")
         return {"diagonal_lines": [], "horizontal_line": None, "all_lines": []}
+    
+    print(f"   ✓ 找到 {len(wave_high_points)} 個波段高點")
     
     # 識別斜向下降趨勢線
     diagonal_lines = _find_diagonal_descending_lines(
@@ -83,6 +86,10 @@ def identify_descending_trendlines(
     all_lines = diagonal_lines.copy()
     if horizontal_line is not None:
         all_lines.append(horizontal_line)
+    
+    print(f"   ✓ 識別到 {len(diagonal_lines)} 條斜向趨勢線")
+    if horizontal_line:
+        print(f"   ✓ 識別到水平壓力線：{horizontal_line['resistance_price']:.2f}")
     
     return {
         "diagonal_lines": diagonal_lines,
@@ -175,8 +182,15 @@ def _find_diagonal_descending_lines(
     # 篩選終點候選（必須在最近20天內）
     end_point_candidates = [p for p in wave_high_points if p["idx"] >= recent_start_idx]
     
+    # 💡 改進：如果最近20天沒有波段高點，則使用最近的一個波段高點
     if len(end_point_candidates) == 0:
-        return lines
+        if len(wave_high_points) > 0:
+            # 使用最近的波段高點作為終點
+            most_recent_point = wave_high_points[-1]
+            end_point_candidates = [most_recent_point]
+            print(f"   ℹ️  最近{recent_end_days}天內無波段高點，使用最近波段高點：{most_recent_point['date'].strftime('%Y-%m-%d')}")
+        else:
+            return lines
     
     # 篩選起點候選（必須在180天內）
     start_point_candidates = [p for p in wave_high_points if p["idx"] >= lookback_idx]

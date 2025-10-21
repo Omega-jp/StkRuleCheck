@@ -1,9 +1,17 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+下降趨勢線突破買入規則檢查模組
+修正版：修正 waving_point_identification 導入錯誤
+"""
+
 import math
 from typing import Optional
 
 import pandas as pd
 from ..baseRule.turning_point_identification import identify_turning_points
-from ..baseRule.wave_point_identification import identify_wave_points
+# ✅ 修正：改為正確的模組名稱 waving_point_identification
+from ..baseRule.waving_point_identification import identify_waving_points
 from .long_term_descending_trendline import identify_long_term_descending_trendlines
 
 def check_breakthrough_descending_trendline_buy_rule(df: pd.DataFrame, 
@@ -238,9 +246,9 @@ def _build_wave_points_from_turning(
         else:
             working_df[col] = working_df[col].fillna("")
 
-    wave_points = identify_wave_points(working_df)
+    # ✅ 修正：調用正確的函數名稱
+    wave_points = identify_waving_points(working_df, turning_points_df)
     return _normalize_wave_points_df(wave_points)
-
 
 
 def _select_best_breakthrough(valid_breakthroughs: list) -> dict:

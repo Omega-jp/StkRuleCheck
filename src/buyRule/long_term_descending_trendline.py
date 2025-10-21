@@ -1,71 +1,98 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-長期下降趨勢線識別模組（基於波段高點）
-Modified to use wave high points instead of turning high points
-修正版：斜率判斷改為 slope > 0（接受水平線）
+下降趨勢線識別模組（基於波段高點）- 規格書版本
+============================================
+
+根據「突破下降趨勢線偵測規格書」實作：
+1. 使用波段高點（非轉折高點）繪製趨勢線
+2. 支援斜向下降趨勢線和水平壓力線
+3. 嚴格驗證趨勢線有效性（無穿越檢查）
+
+作者：Claude
+日期：2025-01-21
 """
 
 import math
-from typing import Dict, List
-
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-from src.baseRule.trendline_utils import segment_respects_line
 
 
-def identify_long_term_descending_trendlines(
+def identify_descending_trendlines(
     df: pd.DataFrame,
     wave_points_df: pd.DataFrame,
-    min_days_long_term: int = 180,
-    min_points_short_term: int = 3,
+    lookback_days: int = 180,
+    recent_end_days: int = 20,
+    tolerance_pct: float = 0.1
 ) -> Dict[str, List[dict]]:
     """
     識別下降趨勢線（基於波段高點）
     
-    主要修改：
-    - 將 turning_points_df 改為 wave_points_df
-    - 使用 'wave_high_point' 欄位而非 'turning_high_point'
-    - 斜率判斷：slope > 0 (只排除向上的線，接受水平線)
-    - 其他邏輯保持不變
-
+    根據規格書 2.1 斜向下降趨勢線：
+    - 回溯期間：lookback_days（預設180天）
+    - 終點限制：連線終點必須在最近 recent_end_days 天內
+    - 連線規則：取任意兩個波段高點連線（起點在180天內，終點在最近20天內）
+    - 斜率要求：斜率 ≤ 0（下降或水平）
+    - 有效性驗證：區間內所有K線最高價不得穿越趨勢線（±0.1%誤差）
+    
+    根據規格書 2.2 水平壓力線：
+    - 180天觀察窗口內的最高價
+    
     Args:
-        df (pd.DataFrame): OHLC dataframe indexed by date and containing a ``High`` column.
-        wave_points_df (pd.DataFrame): 波段點識別結果（包含 'wave_high_point' 欄位）
-        min_days_long_term (int): Minimum calendar days for a long-term line.
-        min_points_short_term (int): Minimum wave points required for short-term regression lines.
-
+        df: K線數據，需包含 'High' 欄位，索引為日期
+        wave_points_df: 波段點識別結果，需包含 'wave_high_point' 欄位
+        lookback_days: 回溯期間（預設180天）
+        recent_end_days: 終點限制天數（預設20天）
+        tolerance_pct: 誤差容忍百分比（預設0.1%）
+    
     Returns:
-        dict: ``{"long_term_lines": [...], "short_term_lines": [...], "all_lines": [...]}``.
+        字典包含：
+        - 'diagonal_lines': 斜向下降趨勢線列表
+        - 'horizontal_line': 水平壓力線資訊（dict或None）
+        - 'all_lines': 所有趨勢線的合併列表
     """
+    
     if df is None or df.empty:
-        return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
-
+        return {"diagonal_lines": [], "horizontal_line": None, "all_lines": []}
+    
     if wave_points_df is None or wave_points_df.empty:
-        return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
-
+        return {"diagonal_lines": [], "horizontal_line": None, "all_lines": []}
+    
     if "High" not in df.columns:
-        raise ValueError("DataFrame must contain 'High' column to build trendlines.")
-
+        raise ValueError("DataFrame 必須包含 'High' 欄位")
+    
+    # 建立日期索引映射
     index_keys = _build_index_key_map(df.index)
-    high_points = _collect_high_wave_points(df, wave_points_df, index_keys)
-
-    if len(high_points) < 2:
-        return {"long_term_lines": [], "short_term_lines": [], "all_lines": []}
-
-    long_term_lines = _find_long_term_lines(df, high_points, min_days_long_term)
-    short_term_lines = _find_short_term_lines(df, high_points, min_days_long_term, min_points_short_term)
-
-    all_lines = sorted(long_term_lines + short_term_lines, key=lambda line: (line["start_idx"], line["end_idx"]))
+    
+    # 收集波段高點
+    wave_high_points = _collect_wave_high_points(df, wave_points_df, index_keys)
+    
+    if len(wave_high_points) < 2:
+        return {"diagonal_lines": [], "horizontal_line": None, "all_lines": []}
+    
+    # 識別斜向下降趨勢線
+    diagonal_lines = _find_diagonal_descending_lines(
+        df, wave_high_points, lookback_days, recent_end_days, tolerance_pct
+    )
+    
+    # 識別水平壓力線（180天最高價）
+    horizontal_line = _find_horizontal_resistance_line(df, lookback_days)
+    
+    # 合併所有趨勢線
+    all_lines = diagonal_lines.copy()
+    if horizontal_line is not None:
+        all_lines.append(horizontal_line)
+    
     return {
-        "long_term_lines": long_term_lines,
-        "short_term_lines": short_term_lines,
-        "all_lines": all_lines,
+        "diagonal_lines": diagonal_lines,
+        "horizontal_line": horizontal_line,
+        "all_lines": all_lines
     }
 
 
 def _build_index_key_map(index: pd.Index) -> Dict[str, int]:
-    """建立日期索引映射"""
+    """建立日期字串到索引位置的映射"""
     if isinstance(index, pd.DatetimeIndex):
         keys = index.strftime("%Y-%m-%d")
     else:
@@ -73,7 +100,7 @@ def _build_index_key_map(index: pd.Index) -> Dict[str, int]:
     return {key: pos for pos, key in enumerate(keys)}
 
 
-def _collect_high_wave_points(
+def _collect_wave_high_points(
     df: pd.DataFrame,
     wave_points_df: pd.DataFrame,
     index_keys: Dict[str, int],
@@ -81,253 +108,240 @@ def _collect_high_wave_points(
     """
     收集所有波段高點
     
-    主要修改：
-    - 檢查 'wave_high_point' 欄位（而非 'turning_high_point'）
-    - 其他邏輯保持不變
+    Returns:
+        波段高點列表，每個元素包含：
+        - idx: 索引位置
+        - date: 日期（pd.Timestamp）
+        - price: 價格
     """
     points: List[dict] = []
+    
     for _, row in wave_points_df.iterrows():
-        # 關鍵修改：改為檢查 'wave_high_point'
+        # 檢查是否為波段高點
         if row.get("wave_high_point") != "O":
             continue
-
+        
+        # 提取日期
         date_value = row.get("date")
         if pd.isna(date_value):
             continue
-
+        
         date_value = pd.to_datetime(date_value, errors="coerce")
         if pd.isna(date_value):
             continue
-
+        
         date_key = date_value.strftime("%Y-%m-%d")
         pos = index_keys.get(date_key)
         if pos is None:
             continue
-
+        
+        # 提取該日最高價
         high_price = float(df.iloc[pos]["High"])
-        points.append({"idx": pos, "date": date_value.normalize(), "price": high_price})
-
+        
+        points.append({
+            "idx": pos,
+            "date": date_value.normalize(),
+            "price": high_price
+        })
+    
+    # 按索引位置排序
     points.sort(key=lambda p: p["idx"])
     return points
 
 
-def _find_long_term_lines(
+def _find_diagonal_descending_lines(
     df: pd.DataFrame,
-    high_points: List[dict],
-    min_days_long_term: int,
+    wave_high_points: List[dict],
+    lookback_days: int,
+    recent_end_days: int,
+    tolerance_pct: float
 ) -> List[dict]:
     """
-    找出長期兩點下降趨勢線
+    找出斜向下降趨勢線
     
-    邏輯：
-    1. 遍歷所有波段高點的兩兩組合
-    2. 檢查時間跨度 >= min_days_long_term (預設180天)
-    3. 檢查價格下降 (point2.price < point1.price)
-    4. 驗證區間內所有高點都不穿越趨勢線
-    5. ✅ 修正：只排除斜率 > 0 的線（接受水平線）
+    規格書邏輯：
+    1. 起點：180天內任意波段高點
+    2. 終點：最近20天內的波段高點
+    3. 斜率要求：≤ 0（下降或水平）
+    4. 有效性：區間內所有K線最高價不穿越趨勢線（±0.1%誤差）
     """
-    lines: List[dict] = []
-    seen_pairs = set()
-
-    for i, point1 in enumerate(high_points):
-        for j in range(i + 1, len(high_points)):
-            point2 = high_points[j]
-            idx_span = point2["idx"] - point1["idx"]
-            if idx_span <= 0:
-                continue
-
-            days_span = _calculate_days_span(df, point1["idx"], point2["idx"])
-            if days_span < min_days_long_term:
-                continue
-
-            if point2["price"] >= point1["price"]:
-                continue
-
-            slope = (point2["price"] - point1["price"]) / idx_span
-            # ✅ 修正：改為 > 0（只排除向上的線，接受水平線和向下的線）
-            if slope > 0:
-                continue
-
-            intercept = point1["price"] - slope * point1["idx"]
-            if not segment_respects_line(df, point1["idx"], point2["idx"], slope, intercept):
-                continue
-
-            r_squared = _segment_r_squared(df, point1["idx"], point2["idx"], slope, intercept)
-            key = (point1["idx"], point2["idx"])
-            if key in seen_pairs:
-                continue
-
-            seen_pairs.add(key)
-            lines.append(
-                _build_line(
-                    line_type="long_term_two_point",
-                    df=df,
-                    start_idx=point1["idx"],
-                    end_idx=point2["idx"],
-                    slope=slope,
-                    intercept=intercept,
-                    r_squared=r_squared,
-                    points=[point1, point2],
-                    days_span=days_span,
-                )
-            )
-
-    return lines
-
-
-def _find_short_term_lines(
-    df: pd.DataFrame,
-    high_points: List[dict],
-    min_days_long_term: int,
-    min_points_short_term: int,
-) -> List[dict]:
-    """
-    找出短期多點下降趨勢線
+    lines = []
     
-    邏輯：
-    1. 使用滑動窗口，從 min_points_short_term 開始
-    2. 檢查時間跨度 < min_days_long_term (短期)
-    3. 檢查價格嚴格遞減
-    4. 使用線性回歸擬合
-    5. 驗證區間內所有高點都不穿越趨勢線
-    6. ✅ 修正：只排除斜率 > 0 的線（接受水平線）
-    """
-    lines: List[dict] = []
-    if len(high_points) < min_points_short_term:
+    # 計算時間範圍
+    last_idx = len(df) - 1
+    lookback_idx = max(0, last_idx - lookback_days)
+    recent_start_idx = max(0, last_idx - recent_end_days)
+    
+    # 篩選終點候選（必須在最近20天內）
+    end_point_candidates = [p for p in wave_high_points if p["idx"] >= recent_start_idx]
+    
+    if len(end_point_candidates) == 0:
         return lines
-
-    seen_segments = set()
-    total_points = len(high_points)
-
-    for window_size in range(min_points_short_term, total_points + 1):
-        for start in range(0, total_points - window_size + 1):
-            segment = high_points[start : start + window_size]
-            start_idx = segment[0]["idx"]
-            end_idx = segment[-1]["idx"]
+    
+    # 篩選起點候選（必須在180天內）
+    start_point_candidates = [p for p in wave_high_points if p["idx"] >= lookback_idx]
+    
+    # 遍歷所有可能的起點-終點組合
+    for i, point1 in enumerate(start_point_candidates):
+        for point2 in end_point_candidates:
+            # 確保時間順序：point1 在前，point2 在後
+            if point1["idx"] >= point2["idx"]:
+                continue
+            
+            # 檢查斜率（必須 ≤ 0）
+            if point2["price"] > point1["price"]:
+                continue
+            
+            # 計算趨勢線參數
+            start_idx = point1["idx"]
+            end_idx = point2["idx"]
+            
+            # 計算斜率和截距
+            slope = (point2["price"] - point1["price"]) / (end_idx - start_idx)
+            intercept = point1["price"] - slope * start_idx
+            
+            # 驗證趨勢線有效性（區間內無穿越）
+            if not _segment_respects_line(df, start_idx, end_idx, slope, intercept, tolerance_pct):
+                continue
+            
+            # 計算時間跨度
             days_span = _calculate_days_span(df, start_idx, end_idx)
-            if days_span >= min_days_long_term:
-                continue
-
-            if not _is_strictly_descending(segment):
-                continue
-
-            x = np.array([point["idx"] for point in segment], dtype=float)
-            if len(np.unique(x)) < 2:
-                continue
-
-            y = np.array([point["price"] for point in segment], dtype=float)
-            slope, intercept = np.polyfit(x, y, 1)
-            # ✅ 修正：改為 > 0（只排除向上的線，接受水平線和向下的線）
-            if slope > 0:
-                continue
-
-            if not segment_respects_line(df, start_idx, end_idx, slope, intercept):
-                continue
-
-            r_squared = _segment_r_squared(df, start_idx, end_idx, slope, intercept)
-
-            key = tuple(point["idx"] for point in segment)
-            if key in seen_segments:
-                continue
-
-            seen_segments.add(key)
-            lines.append(
-                _build_line(
-                    line_type="short_term_multi_point",
-                    df=df,
-                    start_idx=start_idx,
-                    end_idx=end_idx,
-                    slope=slope,
-                    intercept=intercept,
-                    r_squared=r_squared,
-                    points=segment,
-                    days_span=days_span,
-                )
-            )
-
+            
+            # 建立趨勢線資訊
+            line_info = {
+                "type": "diagonal_descending",
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "start_date": point1["date"],
+                "end_date": point2["date"],
+                "days_span": days_span,
+                "slope": slope,
+                "intercept": intercept,
+                "equation": {"slope": slope, "intercept": intercept},
+                "points": [
+                    {"date": point1["date"], "price": point1["price"]},
+                    {"date": point2["date"], "price": point2["price"]}
+                ]
+            }
+            
+            lines.append(line_info)
+    
     return lines
 
 
-def _build_line(
-    line_type: str,
+def _find_horizontal_resistance_line(df: pd.DataFrame, lookback_days: int) -> Optional[dict]:
+    """
+    找出水平壓力線（180天最高點）
+    
+    規格書 2.2：
+    - 取值：180天觀察窗口內所有K線的最高價
+    - 性質：水平線（斜率 = 0）
+    """
+    last_idx = len(df) - 1
+    lookback_idx = max(0, last_idx - lookback_days)
+    
+    # 取得回溯期間的數據
+    lookback_df = df.iloc[lookback_idx:last_idx+1]
+    
+    if lookback_df.empty:
+        return None
+    
+    # 找出最高價及其日期
+    max_high = lookback_df["High"].max()
+    max_high_date = lookback_df["High"].idxmax()
+    
+    # 計算該日期的索引位置
+    if isinstance(max_high_date, pd.Timestamp):
+        max_high_idx = df.index.get_loc(max_high_date)
+    else:
+        max_high_idx = lookback_df["High"].idxmax()
+    
+    # 建立水平壓力線資訊
+    line_info = {
+        "type": "horizontal_resistance",
+        "start_idx": lookback_idx,
+        "end_idx": last_idx,
+        "start_date": pd.to_datetime(df.index[lookback_idx]),
+        "end_date": pd.to_datetime(df.index[last_idx]),
+        "days_span": lookback_days,
+        "slope": 0.0,
+        "intercept": max_high,
+        "equation": {"slope": 0.0, "intercept": max_high},
+        "resistance_price": max_high,
+        "resistance_date": pd.to_datetime(max_high_date),
+        "points": [
+            {"date": pd.to_datetime(max_high_date), "price": max_high}
+        ]
+    }
+    
+    return line_info
+
+
+def _segment_respects_line(
     df: pd.DataFrame,
     start_idx: int,
     end_idx: int,
     slope: float,
     intercept: float,
-    r_squared: float,
-    points: List[dict],
-    days_span: int,
-) -> dict:
-    """建立趨勢線數據結構"""
-    start_date = pd.to_datetime(df.index[start_idx])
-    end_date = pd.to_datetime(df.index[end_idx])
-
-    return {
-        "type": line_type,
-        "start_idx": start_idx,
-        "end_idx": end_idx,
-        "start_date": start_date,
-        "end_date": end_date,
-        "days_span": days_span,
-        "slope": slope,
-        "equation": {"slope": slope, "intercept": intercept},
-        "r_squared": float(r_squared),
-        "points": [{"date": p["date"], "price": p["price"]} for p in points],
-    }
+    tolerance_pct: float
+) -> bool:
+    """
+    驗證趨勢線區間內所有K線最高價不穿越趨勢線
+    
+    規格書有效性驗證：
+    - 趨勢線區間內所有K線的最高價不得穿越趨勢線
+    - 誤差容忍：允許 ±0.1% 的誤差範圍
+    
+    Args:
+        df: K線數據
+        start_idx: 起始索引
+        end_idx: 結束索引
+        slope: 趨勢線斜率
+        intercept: 趨勢線截距
+        tolerance_pct: 誤差容忍百分比
+    
+    Returns:
+        True 表示有效（無穿越），False 表示無效（有穿越）
+    """
+    if end_idx <= start_idx:
+        return True
+    
+    # 遍歷區間內所有K線
+    for i in range(start_idx, end_idx + 1):
+        high_price = df.iloc[i]["High"]
+        trendline_price = intercept + slope * i
+        
+        # 計算誤差容忍範圍
+        tolerance = trendline_price * (tolerance_pct / 100.0)
+        
+        # 檢查是否穿越（高點超過趨勢線 + 誤差）
+        if high_price > trendline_price + tolerance:
+            return False
+    
+    return True
 
 
 def _calculate_days_span(df: pd.DataFrame, start_idx: int, end_idx: int) -> int:
-    """計算時間跨度（天數）"""
+    """計算時間跨度（自然日）"""
     if end_idx <= start_idx:
         return 0
-
+    
     start_date = pd.to_datetime(df.index[start_idx])
     end_date = pd.to_datetime(df.index[end_idx])
+    
     if pd.isna(start_date) or pd.isna(end_date):
         return end_idx - start_idx
-
+    
     return max(0, (end_date - start_date).days)
 
 
-def _is_strictly_descending(points: List[dict]) -> bool:
-    """檢查價格序列是否嚴格遞減"""
-    return all(points[i + 1]["price"] <= points[i]["price"] for i in range(len(points) - 1))
-
-
-def _segment_r_squared(
-    df: pd.DataFrame,
-    start_idx: int,
-    end_idx: int,
-    slope: float,
-    intercept: float,
-) -> float:
-    """計算線性回歸的 R² 值"""
-    if end_idx <= start_idx:
-        return 1.0
-
-    x = np.arange(start_idx, end_idx + 1, dtype=float)
-    high_values = df.iloc[start_idx : end_idx + 1]["High"].to_numpy(dtype=float)
-    if high_values.size < 2:
-        return 1.0
-
-    predicted = intercept + slope * x
-    ss_res = float(np.sum((high_values - predicted) ** 2))
-    ss_tot = float(np.sum((high_values - np.mean(high_values)) ** 2))
-
-    if math.isclose(ss_tot, 0.0):
-        return 1.0
-
-    return max(0.0, 1.0 - ss_res / ss_tot)
-
-
 if __name__ == "__main__":
-    print("長期下降趨勢線識別模組（基於波段高點）- 修正版")
+    print("下降趨勢線識別模組 - 規格書版本")
     print("=" * 60)
-    print("主要修改：")
-    print("  - 使用 wave_points_df 代替 turning_points_df")
-    print("  - 檢查 'wave_high_point' 欄位代替 'turning_high_point'")
-    print("  - ✅ 斜率判斷改為 slope > 0（接受水平線）")
+    print("功能：")
+    print("  1. 斜向下降趨勢線（起點180天內，終點最近20天內）")
+    print("  2. 水平壓力線（180天最高價）")
+    print("  3. 嚴格有效性驗證（±0.1%誤差容忍）")
     print("\n使用方式：")
-    print("  from long_term_descending_trendline import identify_long_term_descending_trendlines")
-    print("  trendlines = identify_long_term_descending_trendlines(df, wave_points_df)")
+    print("  from long_term_descending_trendline import identify_descending_trendlines")
+    print("  trendlines = identify_descending_trendlines(df, wave_points_df)")

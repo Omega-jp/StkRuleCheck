@@ -3,6 +3,7 @@
 """
 長期下降趨勢線識別模組（基於波段高點）
 Modified to use wave high points instead of turning high points
+修正版：斜率判斷改為 slope > 0（接受水平線）
 """
 
 import math
@@ -25,6 +26,7 @@ def identify_long_term_descending_trendlines(
     主要修改：
     - 將 turning_points_df 改為 wave_points_df
     - 使用 'wave_high_point' 欄位而非 'turning_high_point'
+    - 斜率判斷：slope > 0 (只排除向上的線，接受水平線)
     - 其他邏輯保持不變
 
     Args:
@@ -122,6 +124,7 @@ def _find_long_term_lines(
     2. 檢查時間跨度 >= min_days_long_term (預設180天)
     3. 檢查價格下降 (point2.price < point1.price)
     4. 驗證區間內所有高點都不穿越趨勢線
+    5. ✅ 修正：只排除斜率 > 0 的線（接受水平線）
     """
     lines: List[dict] = []
     seen_pairs = set()
@@ -141,7 +144,8 @@ def _find_long_term_lines(
                 continue
 
             slope = (point2["price"] - point1["price"]) / idx_span
-            if slope >= 0:
+            # ✅ 修正：改為 > 0（只排除向上的線，接受水平線和向下的線）
+            if slope > 0:
                 continue
 
             intercept = point1["price"] - slope * point1["idx"]
@@ -186,6 +190,7 @@ def _find_short_term_lines(
     3. 檢查價格嚴格遞減
     4. 使用線性回歸擬合
     5. 驗證區間內所有高點都不穿越趨勢線
+    6. ✅ 修正：只排除斜率 > 0 的線（接受水平線）
     """
     lines: List[dict] = []
     if len(high_points) < min_points_short_term:
@@ -212,7 +217,8 @@ def _find_short_term_lines(
 
             y = np.array([point["price"] for point in segment], dtype=float)
             slope, intercept = np.polyfit(x, y, 1)
-            if slope >= 0:
+            # ✅ 修正：改為 > 0（只排除向上的線，接受水平線和向下的線）
+            if slope > 0:
                 continue
 
             if not segment_respects_line(df, start_idx, end_idx, slope, intercept):
@@ -316,12 +322,12 @@ def _segment_r_squared(
 
 
 if __name__ == "__main__":
-    print("長期下降趨勢線識別模組（基於波段高點）")
+    print("長期下降趨勢線識別模組（基於波段高點）- 修正版")
     print("=" * 60)
     print("主要修改：")
     print("  - 使用 wave_points_df 代替 turning_points_df")
     print("  - 檢查 'wave_high_point' 欄位代替 'turning_high_point'")
-    print("  - 其他邏輯保持不變")
+    print("  - ✅ 斜率判斷改為 slope > 0（接受水平線）")
     print("\n使用方式：")
     print("  from long_term_descending_trendline import identify_long_term_descending_trendlines")
     print("  trendlines = identify_long_term_descending_trendlines(df, wave_points_df)")

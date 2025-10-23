@@ -80,7 +80,7 @@ def identify_descending_trendlines(
     )
     
     # 識別水平壓力線（180天最高價）
-    horizontal_line = _find_horizontal_resistance_line(df, lookback_days)
+    horizontal_line = _find_horizontal_resistance_line(df, wave_high_points, lookback_days)
     
     # 合併所有趨勢線
     all_lines = diagonal_lines.copy()
@@ -181,6 +181,7 @@ def _find_diagonal_descending_lines(
     
     # 篩選終點候選（必須在最近20天內）
     end_point_candidates = [p for p in wave_high_points if p["idx"] >= recent_start_idx]
+    used_recent_fallback = False
     
     # 💡 改進：如果最近20天沒有波段高點，則使用最近的一個波段高點
     if len(end_point_candidates) == 0:
@@ -188,14 +189,28 @@ def _find_diagonal_descending_lines(
             # 使用最近的波段高點作為終點
             most_recent_point = wave_high_points[-1]
             end_point_candidates = [most_recent_point]
+            used_recent_fallback = True
             print(f"   ℹ️  最近{recent_end_days}天內無波段高點，使用最近波段高點：{most_recent_point['date'].strftime('%Y-%m-%d')}")
         else:
             return lines
     
-    # 篩選起點候選（必須在180天內）
-    start_point_candidates = [p for p in wave_high_points if p["idx"] >= lookback_idx]
+    # 篩選起點候選；若最近20天沒有波段高點，放寬為全區間中較早的點
+    start_point_candidates = [
+        p for p in wave_high_points
+        if lookback_idx <= p["idx"] < end_point_candidates[-1]["idx"]
+    ]
+    
+    if len(start_point_candidates) == 0:
+        start_point_candidates = [
+            p for p in wave_high_points
+            if p["idx"] < end_point_candidates[-1]["idx"]
+        ]
     
     # 遍歷所有可能的起點-終點組合
+    tolerance_for_eval = tolerance_pct
+    if used_recent_fallback:
+        tolerance_for_eval = max(tolerance_pct * 5, 0.5)
+    
     for i, point1 in enumerate(start_point_candidates):
         for point2 in end_point_candidates:
             # 確保時間順序：point1 在前，point2 在後
@@ -215,7 +230,7 @@ def _find_diagonal_descending_lines(
             intercept = point1["price"] - slope * start_idx
             
             # 驗證趨勢線有效性（區間內無穿越）
-            if not _segment_respects_line(df, start_idx, end_idx, slope, intercept, tolerance_pct):
+            if not _segment_respects_line(df, start_idx, end_idx, slope, intercept, tolerance_for_eval):
                 continue
             
             # 計算時間跨度
@@ -240,10 +255,53 @@ def _find_diagonal_descending_lines(
             
             lines.append(line_info)
     
+    if used_recent_fallback and len(lines) == 0:
+        fallback_end_candidates = list(reversed(wave_high_points))
+        for fallback_end in fallback_end_candidates:
+            fallback_starts = [
+                p for p in reversed(wave_high_points)
+                if p["idx"] < fallback_end["idx"] and p["price"] >= fallback_end["price"]
+            ]
+            for fallback_start in fallback_starts:
+                start_idx = fallback_start["idx"]
+                end_idx = fallback_end["idx"]
+                slope = (fallback_end["price"] - fallback_start["price"]) / (end_idx - start_idx)
+                if slope > 0:
+                    continue
+                intercept = fallback_start["price"] - slope * start_idx
+                if not _segment_respects_line(df, start_idx, end_idx, slope, intercept, tolerance_for_eval):
+                    continue
+                days_span = _calculate_days_span(df, start_idx, end_idx)
+                line_info = {
+                    "type": "diagonal_descending",
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "start_date": fallback_start["date"],
+                    "end_date": fallback_end["date"],
+                    "days_span": days_span,
+                    "slope": slope,
+                    "intercept": intercept,
+                    "equation": {"slope": slope, "intercept": intercept},
+                    "points": [
+                        {"date": fallback_start["date"], "price": fallback_start["price"]},
+                        {"date": fallback_end["date"], "price": fallback_end["price"]}
+                    ],
+                    "fallback": True
+                }
+                lines.append(line_info)
+                break
+            if lines:
+                print(f"   ℹ️  使用較早的波段高點作為切線終點：{fallback_end['date'].strftime('%Y-%m-%d')}")
+                break
+    
     return lines
 
 
-def _find_horizontal_resistance_line(df: pd.DataFrame, lookback_days: int) -> Optional[dict]:
+def _find_horizontal_resistance_line(
+    df: pd.DataFrame,
+    wave_high_points: List[dict],
+    lookback_days: int
+) -> Optional[dict]:
     """
     找出水平壓力線（180天最高點）
     
@@ -252,32 +310,35 @@ def _find_horizontal_resistance_line(df: pd.DataFrame, lookback_days: int) -> Op
     - 性質：水平線（斜率 = 0）
     """
     last_idx = len(df) - 1
-    lookback_idx = max(0, last_idx - lookback_days)
-    
-    # 取得回溯期間的數據
-    lookback_df = df.iloc[lookback_idx:last_idx+1]
-    
-    if lookback_df.empty:
+    if last_idx < 0:
         return None
     
-    # 找出最高價及其日期
-    max_high = lookback_df["High"].max()
-    max_high_date = lookback_df["High"].idxmax()
+    wave_high_count = len(wave_high_points)
+    if wave_high_count == 0:
+        return None
     
-    # 計算該日期的索引位置
-    if isinstance(max_high_date, pd.Timestamp):
-        max_high_idx = df.index.get_loc(max_high_date)
-    else:
-        max_high_idx = lookback_df["High"].idxmax()
+    _ = lookback_days  # keep parameter for API compatibility
+    
+    # use the highest wave high across the entire window
+    highest_point = max(wave_high_points, key=lambda p: (p["price"], p["idx"]))
+    max_high = highest_point["price"]
+    max_high_date = highest_point["date"]
+    
+    start_idx = 0
+    end_idx = last_idx
+    
+    start_date = pd.to_datetime(df.index[start_idx])
+    end_date = pd.to_datetime(df.index[end_idx])
+    days_span = _calculate_days_span(df, start_idx, end_idx)
     
     # 建立水平壓力線資訊
     line_info = {
         "type": "horizontal_resistance",
-        "start_idx": lookback_idx,
-        "end_idx": last_idx,
-        "start_date": pd.to_datetime(df.index[lookback_idx]),
-        "end_date": pd.to_datetime(df.index[last_idx]),
-        "days_span": lookback_days,
+        "start_idx": start_idx,
+        "end_idx": end_idx,
+        "start_date": start_date,
+        "end_date": end_date,
+        "days_span": days_span,
         "slope": 0.0,
         "intercept": max_high,
         "equation": {"slope": 0.0, "intercept": max_high},

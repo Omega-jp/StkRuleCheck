@@ -9,6 +9,7 @@ env/
 
 # Data directories
 output/
+Data/
 
 # Operating System files
 .DS_Store

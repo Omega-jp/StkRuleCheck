@@ -82,6 +82,7 @@ def check_breakthrough_descending_trendline(
         return _create_empty_results(df)
     
     results = []
+    used_breakthrough_lines = set()
     
     # 對每個日期進行檢查
     for i in range(len(df)):
@@ -110,6 +111,10 @@ def check_breakthrough_descending_trendline(
         valid_breakthroughs = []
         
         for line in all_lines:
+            line_key = _build_line_key(line)
+            if line_key in used_breakthrough_lines:
+                continue
+            
             # 計算當日趨勢線價格
             current_line_price = line['intercept'] + line['slope'] * i
             
@@ -153,6 +158,7 @@ def check_breakthrough_descending_trendline(
                 signal_strength = _calculate_signal_strength(
                     line, breakthrough_pct, volume_ratio
                 )
+                used_breakthrough_lines.add(_build_line_key(line))
         
         # 記錄結果
         results.append({
@@ -272,6 +278,17 @@ def _calculate_signal_strength(line: dict, breakthrough_pct: float, volume_ratio
     
     # 確保在1-5分範圍內
     return max(1, min(5, int(round(score))))
+
+
+def _build_line_key(line: dict) -> tuple:
+    """建立趨勢線的唯一識別 key，避免重複發出信號"""
+    return (
+        line.get('type'),
+        line.get('start_idx'),
+        line.get('end_idx'),
+        round(line.get('slope', 0.0), 6),
+        round(line.get('intercept', 0.0), 3)
+    )
 
 
 if __name__ == "__main__":

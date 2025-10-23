@@ -345,6 +345,7 @@ def validate_buy_rule(stock_id):
     from .baseRule.turning_point_identification import check_turning_points
     from .baseRule.wave_point_identification import check_wave_points
     from .buyRule.breakthrough_resistance_line import check_resistance_line_breakthrough
+    from .buyRule.breakthrough_descending_trendline import check_descending_trendline
     san_yang_rule_df = check_san_yang_kai_tai(df)
     four_seas_dragon_rule_df = check_four_seas_dragon(df, [5, 10, 20, 60], stock_id)
     macd_rule_df = check_macd_golden_cross_above_zero(df)
@@ -384,6 +385,11 @@ def validate_buy_rule(stock_id):
 
     # 添加壓力線突破規則
     resistance_breakthrough_df = check_resistance_line_breakthrough(df, turning_points_rule_df)
+    descending_trendline_df = check_descending_trendline(
+        df,
+        turning_points_df=turning_points_rule_df,
+        wave_points_df=wave_points_rule_df,
+    )
 
     # 合併規則結果
     rule_df = pd.merge(san_yang_rule_df, four_seas_dragon_rule_df, on='date', how='outer')
@@ -391,6 +397,7 @@ def validate_buy_rule(stock_id):
     rule_df = pd.merge(rule_df, macd_positive_hist_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, diamond_cross_rule_df, on='date', how='outer')
     rule_df = pd.merge(rule_df, resistance_breakthrough_df, on='date', how='outer')
+    rule_df = pd.merge(rule_df, descending_trendline_df, on='date', how='outer')
 
     wave_points_rule_df['date'] = pd.to_datetime(
         wave_points_rule_df['date'], errors='coerce'
@@ -439,6 +446,13 @@ def validate_buy_rule(stock_id):
             date_obj = pd.to_datetime(row['date'])
             macd_positive_hist_dates.append(date_obj)
     buy_signals_dict['MACD黃金交叉零軸上正柱'] = macd_positive_hist_dates
+
+    descending_breakthrough_dates = []
+    for _, row in rule_df.iterrows():
+        if row.get('descending_trendline_breakthrough_check', '') == 'O':
+            date_obj = pd.to_datetime(row['date'])
+            descending_breakthrough_dates.append(date_obj)
+    buy_signals_dict['下降趨勢線突破'] = descending_breakthrough_dates
     
     # 先處理轉折點識別規則
     turning_high_dates = []

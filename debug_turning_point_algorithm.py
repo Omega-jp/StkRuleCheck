@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-轉折點算法執行過程診斷程式
-逐步追蹤 turning_point_identification.py 的執行邏輯
+轉折點算法診斷程式 - v2.0 (書本規格版)
+
+配合新版 turning_point_identification.py，診斷位移規則的執行過程
+
+功能：
+1. 逐步追蹤穿越事件
+2. 顯示群組內極值的位移過程
+3. 驗證高低點交替原則
+4. 視覺化呈現轉折點
+5. 對比分析轉折點質量
+
+版本：v2.0
+更新日期：2025-10-23
 """
 
 import pandas as pd
@@ -11,25 +22,57 @@ import os
 import sys
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
+from matplotlib.patches import Rectangle
 
 # 添加src目錄到Python路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 
+def setup_chinese_font():
+    """設置中文字體"""
+    try:
+        # Windows
+        if os.name == 'nt':
+            plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'SimHei']
+        # macOS
+        elif sys.platform == 'darwin':
+            plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Heiti TC']
+        # Linux
+        else:
+            plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC', 'WenQuanYi Zen Hei']
+        
+        plt.rcParams['axes.unicode_minus'] = False
+        return True
+    except Exception as e:
+        print(f"⚠️ 字體設置警告: {e}")
+        return False
+
+
 def debug_turning_point_execution(stock_id='2330', days=60):
     """
-    逐步追蹤轉折點識別算法的執行過程
+    診斷轉折點識別算法的執行過程
+    
+    詳細追蹤：
+    1. 穿越事件檢測
+    2. 群組劃分
+    3. 極值位移過程
+    4. 最終標記結果
     """
     print(f"\n{'='*80}")
-    print(f"轉折點算法執行過程診斷：{stock_id}")
+    print(f"轉折點算法診斷：{stock_id} (書本規格版 v2.0)")
     print(f"{'='*80}")
     
     try:
-        # 導入必要模塊
+        # 導入模塊
         from src.validate_buy_rule import load_stock_data
+        from src.baseRule.turning_point_identification import (
+            identify_turning_points, 
+            detect_cross_events,
+            TurningPointTracker
+        )
         
         # 載入數據
-        print("🔄 載入股票數據...")
+        print("\n🔄 載入股票數據...")
         df = load_stock_data(stock_id, 'D')
         if df is None:
             print(f"❌ 無法載入股票 {stock_id} 的數據")
@@ -41,513 +84,334 @@ def debug_turning_point_execution(stock_id='2330', days=60):
         
         # 取最近的數據
         recent_df = df.tail(days).copy()
-        print(f"📊 分析最近 {len(recent_df)} 天的數據")
-        print(f"   數據範圍：{recent_df.index[0].strftime('%Y-%m-%d')} 到 {recent_df.index[-1].strftime('%Y-%m-%d')}")
+        print(f"✅ 成功載入數據")
+        print(f"   分析範圍：{recent_df.index[0].strftime('%Y-%m-%d')} 到 {recent_df.index[-1].strftime('%Y-%m-%d')}")
+        print(f"   總天數：{len(recent_df)} 天")
         
-        # 手動執行轉折點識別算法的每個步驟
-        print(f"\n🔍 開始手動執行轉折點識別算法...")
+        # === 步驟1：檢測穿越事件 ===
+        print(f"\n{'='*80}")
+        print("📊 步驟1：檢測穿越事件")
+        print(f"{'='*80}")
         
-        # 步驟1：計算收盤價與MA5的關係
-        print(f"\n1️⃣ 步驟1：計算收盤價與MA5的關係")
-        recent_df['close_above_ma5'] = recent_df['Close'] > recent_df['ma5']
-        recent_df['prev_close_above_ma5'] = recent_df['close_above_ma5'].shift(1)
+        df_with_cross = detect_cross_events(recent_df)
         
-        # 顯示最近10天的關係
-        print(f"   最近10天的收盤價vs MA5關係：")
-        last_10 = recent_df.tail(10)
-        for i, (date, row) in enumerate(last_10.iterrows()):
-            above_current = "✓" if row['close_above_ma5'] else "✗"
-            above_prev = "✓" if pd.notna(row['prev_close_above_ma5']) and row['prev_close_above_ma5'] else "✗"
-            print(f"   {i+1:2d}. {date.strftime('%Y-%m-%d')}: C={row['Close']:6.2f}, MA5={row['ma5']:6.2f}, "
-                  f"當前={above_current}, 前日={above_prev}")
+        # 找出所有穿越事件
+        cross_up_dates = df_with_cross[df_with_cross['cross_up']].index
+        cross_down_dates = df_with_cross[df_with_cross['cross_down']].index
         
-        # 步驟2：識別穿越點
-        print(f"\n2️⃣ 步驟2：識別MA5穿越點")
+        print(f"\n向上穿越事件 ({len(cross_up_dates)}次)：")
+        for i, date in enumerate(cross_up_dates, 1):
+            print(f"  {i:2d}. {date.strftime('%Y-%m-%d')} - 收盤價向上穿越MA5")
         
-        # 處理NaN值問題：填充第一行的prev_close_above_ma5
-        recent_df['prev_close_above_ma5'] = recent_df['prev_close_above_ma5'].fillna(recent_df['close_above_ma5'])
+        print(f"\n向下穿越事件 ({len(cross_down_dates)}次)：")
+        for i, date in enumerate(cross_down_dates, 1):
+            print(f"  {i:2d}. {date.strftime('%Y-%m-%d')} - 收盤價向下穿越MA5")
         
-        # 確保都是布林值
-        recent_df['close_above_ma5'] = recent_df['close_above_ma5'].astype(bool)
-        recent_df['prev_close_above_ma5'] = recent_df['prev_close_above_ma5'].astype(bool)
-        
-        recent_df['cross_up'] = (~recent_df['prev_close_above_ma5']) & recent_df['close_above_ma5']
-        recent_df['cross_down'] = recent_df['prev_close_above_ma5'] & (~recent_df['close_above_ma5'])
-        
-        cross_up_dates = recent_df[recent_df['cross_up']].index
-        cross_down_dates = recent_df[recent_df['cross_down']].index
-        
-        print(f"   向上穿越MA5的日期 ({len(cross_up_dates)}個)：")
-        for i, date in enumerate(cross_up_dates):
-            row = recent_df.loc[date]
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')}: C={row['Close']:6.2f}, MA5={row['ma5']:6.2f}")
-        
-        print(f"   向下穿越MA5的日期 ({len(cross_down_dates)}個)：")
-        for i, date in enumerate(cross_down_dates):
-            row = recent_df.loc[date]
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')}: C={row['Close']:6.2f}, MA5={row['ma5']:6.2f}")
-        
-        # 步驟3：建立穿越事件時間軸
-        print(f"\n3️⃣ 步驟3：建立穿越事件時間軸")
-        cross_events = []
-        
+        # 合併並排序所有穿越事件
+        all_crosses = []
         for date in cross_up_dates:
-            cross_events.append((date, 'up'))
+            all_crosses.append((date, 'up'))
         for date in cross_down_dates:
-            cross_events.append((date, 'down'))
+            all_crosses.append((date, 'down'))
+        all_crosses.sort(key=lambda x: x[0])
         
-        cross_events.sort(key=lambda x: x[0])
+        # === 步驟2：追蹤群組與極值位移 ===
+        print(f"\n{'='*80}")
+        print("🔍 步驟2：追蹤群組劃分與極值位移過程")
+        print(f"{'='*80}")
         
-        print(f"   時間軸上的穿越事件 ({len(cross_events)}個)：")
-        for i, (date, direction) in enumerate(cross_events):
-            arrow = "📈" if direction == 'up' else "📉"
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')} - {arrow} {direction}")
+        tracker = TurningPointTracker()
+        group_history = []  # 記錄每個群組的歷史
         
-        # 步驟4：根據穿越事件尋找轉折點
-        print(f"\n4️⃣ 步驟4：根據穿越事件尋找轉折點")
+        current_position = None
+        last_cross_idx = -1
         
-        identified_turning_points = []
-        
-        for i, (cross_date, cross_type) in enumerate(cross_events):
-            print(f"\n   處理穿越事件 {i+1}: {cross_date.strftime('%Y-%m-%d')} ({cross_type})")
+        for i, (idx, row) in enumerate(df_with_cross.iterrows()):
+            date = idx.strftime('%Y-%m-%d')
+            close_above_ma5 = row['close_above_ma5']
             
-            # 確定搜尋區間
-            if i == 0:
-                # 第一個穿越事件，從數據開始到穿越點
-                start_date = recent_df.index[0]
+            # 檢測穿越
+            if row['cross_up']:
+                print(f"\n⬆️  向上穿越 @ {date}")
+                
+                # 確認前一個負價群組
+                if tracker.current_group_type == 'negative':
+                    print(f"   └─ 確認負價群組 (起始: 索引 {tracker.current_group_start_idx})")
+                    print(f"      轉折低點位置: 索引 {tracker.current_extremum_idx}, 日期 {tracker.current_extremum_date}")
+                    print(f"      最低價: {tracker.current_extremum_value:.2f}")
+                    
+                    group_history.append({
+                        'type': 'negative',
+                        'start_idx': tracker.current_group_start_idx,
+                        'end_idx': i,
+                        'extremum_idx': tracker.current_extremum_idx,
+                        'extremum_date': tracker.current_extremum_date,
+                        'extremum_value': tracker.current_extremum_value,
+                        'mark_type': 'low'
+                    })
+                
+                # 開始新的正價群組
+                tracker.start_positive_group(i, date, row['High'])
+                print(f"   └─ 開始正價群組 @ 索引 {i}")
+                last_cross_idx = i
+            
+            elif row['cross_down']:
+                print(f"\n⬇️  向下穿越 @ {date}")
+                
+                # 確認前一個正價群組
+                if tracker.current_group_type == 'positive':
+                    print(f"   └─ 確認正價群組 (起始: 索引 {tracker.current_group_start_idx})")
+                    print(f"      轉折高點位置: 索引 {tracker.current_extremum_idx}, 日期 {tracker.current_extremum_date}")
+                    print(f"      最高價: {tracker.current_extremum_value:.2f}")
+                    
+                    group_history.append({
+                        'type': 'positive',
+                        'start_idx': tracker.current_group_start_idx,
+                        'end_idx': i,
+                        'extremum_idx': tracker.current_extremum_idx,
+                        'extremum_date': tracker.current_extremum_date,
+                        'extremum_value': tracker.current_extremum_value,
+                        'mark_type': 'high'
+                    })
+                
+                # 開始新的負價群組
+                tracker.start_negative_group(i, date, row['Low'])
+                print(f"   └─ 開始負價群組 @ 索引 {i}")
+                last_cross_idx = i
+            
+            # 群組內更新極值（位移）
             else:
-                # 從上一個穿越事件到當前穿越事件
-                start_date = cross_events[i-1][0]
+                if i >= 2:  # 需要至少2天數據
+                    old_extremum_idx = tracker.current_extremum_idx
+                    old_extremum_value = tracker.current_extremum_value
+                    
+                    if close_above_ma5 and tracker.current_group_type == 'positive':
+                        tracker.update_extremum_in_positive_group(i, date, row['High'])
+                        
+                        # 如果發生位移，顯示
+                        if tracker.current_extremum_idx != old_extremum_idx:
+                            print(f"   🔄 位移！正價群組最高點更新:")
+                            print(f"      從 索引{old_extremum_idx} ({old_extremum_value:.2f})")
+                            print(f"      到 索引{i} {date} ({row['High']:.2f})")
+                    
+                    elif not close_above_ma5 and tracker.current_group_type == 'negative':
+                        tracker.update_extremum_in_negative_group(i, date, row['Low'])
+                        
+                        # 如果發生位移，顯示
+                        if tracker.current_extremum_idx != old_extremum_idx:
+                            print(f"   🔄 位移！負價群組最低點更新:")
+                            print(f"      從 索引{old_extremum_idx} ({old_extremum_value:.2f})")
+                            print(f"      到 索引{i} {date} ({row['Low']:.2f})")
+        
+        # === 步驟3：執行完整算法並分析結果 ===
+        print(f"\n{'='*80}")
+        print("📋 步驟3：執行完整算法並分析結果")
+        print(f"{'='*80}")
+        
+        turning_points_df = identify_turning_points(recent_df)
+        
+        high_points = turning_points_df[turning_points_df['turning_high_point'] == 'O']
+        low_points = turning_points_df[turning_points_df['turning_low_point'] == 'O']
+        
+        print(f"\n✅ 轉折點識別完成")
+        print(f"   轉折高點數量: {len(high_points)}")
+        print(f"   轉折低點數量: {len(low_points)}")
+        
+        # 顯示所有轉折點
+        print(f"\n🔺 轉折高點列表:")
+        for i, (_, row) in enumerate(high_points.iterrows(), 1):
+            date_str = row['date']
+            matching_data = recent_df[recent_df.index.strftime('%Y-%m-%d') == date_str]
+            if not matching_data.empty:
+                high_price = matching_data.iloc[0]['High']
+                close_price = matching_data.iloc[0]['Close']
+                print(f"   {i:2d}. {date_str} - High: {high_price:7.2f}, Close: {close_price:7.2f}")
+        
+        print(f"\n🔻 轉折低點列表:")
+        for i, (_, row) in enumerate(low_points.iterrows(), 1):
+            date_str = row['date']
+            matching_data = recent_df[recent_df.index.strftime('%Y-%m-%d') == date_str]
+            if not matching_data.empty:
+                low_price = matching_data.iloc[0]['Low']
+                close_price = matching_data.iloc[0]['Close']
+                print(f"   {i:2d}. {date_str} - Low: {low_price:7.2f}, Close: {close_price:7.2f}")
+        
+        # === 步驟4：驗證轉折點質量 ===
+        print(f"\n{'='*80}")
+        print("✓ 步驟4：驗證轉折點質量")
+        print(f"{'='*80}")
+        
+        # 合併所有轉折點並檢查交替
+        all_turning = []
+        for _, row in high_points.iterrows():
+            all_turning.append((row['date'], 'high'))
+        for _, row in low_points.iterrows():
+            all_turning.append((row['date'], 'low'))
+        all_turning.sort(key=lambda x: x[0])
+        
+        print(f"\n按時間順序的轉折點:")
+        alternating_ok = True
+        for i, (date, tp_type) in enumerate(all_turning, 1):
+            symbol = "🔺" if tp_type == 'high' else "🔻"
             
-            end_date = cross_date
+            # 檢查交替
+            violation = ""
+            if i > 1:
+                if all_turning[i-2][1] == tp_type:
+                    violation = " ⚠️ 違反交替原則!"
+                    alternating_ok = False
             
-            print(f"     搜尋區間：{start_date.strftime('%Y-%m-%d')} 到 {end_date.strftime('%Y-%m-%d')}")
-            
-            # 獲取區間數據
-            if start_date <= end_date:
-                period_data = recent_df.loc[start_date:end_date]
-                print(f"     區間數據筆數：{len(period_data)}")
-                
-                if cross_type == 'up':
-                    # 向上穿越時，找該區間的最低點
-                    if len(period_data) > 0:
-                        min_idx = period_data['Low'].idxmin()
-                        min_value = period_data['Low'].min()
-                        min_date_str = min_idx.strftime('%Y-%m-%d')
-                        
-                        print(f"     🔻 找到轉折低點：{min_date_str} (價格: {min_value:.2f})")
-                        identified_turning_points.append((min_idx, 'low', min_value))
-                        
-                        # 顯示該區間的所有低點以供比較
-                        print(f"     該區間所有日期的低點：")
-                        for j, (period_date, period_row) in enumerate(period_data.iterrows()):
-                            mark = " <<<< 最低點" if period_date == min_idx else ""
-                            print(f"       {period_date.strftime('%Y-%m-%d')}: {period_row['Low']:6.2f}{mark}")
-                
-                elif cross_type == 'down':
-                    # 向下穿越時，找該區間的最高點
-                    if len(period_data) > 0:
-                        max_idx = period_data['High'].idxmax()
-                        max_value = period_data['High'].max()
-                        max_date_str = max_idx.strftime('%Y-%m-%d')
-                        
-                        print(f"     🔺 找到轉折高點：{max_date_str} (價格: {max_value:.2f})")
-                        identified_turning_points.append((max_idx, 'high', max_value))
-                        
-                        # 顯示該區間的所有高點以供比較
-                        print(f"     該區間所有日期的高點：")
-                        for j, (period_date, period_row) in enumerate(period_data.iterrows()):
-                            mark = " <<<< 最高點" if period_date == max_idx else ""
-                            print(f"       {period_date.strftime('%Y-%m-%d')}: {period_row['High']:6.2f}{mark}")
-            else:
-                print(f"     ⚠️ 無效區間：起始日期晚於結束日期")
+            print(f"   {i:2d}. {symbol} {date} ({tp_type}){violation}")
         
-        # 步驟5：總結手動識別的結果
-        print(f"\n5️⃣ 步驟5：手動識別結果總結")
-        print(f"   總共識別到 {len(identified_turning_points)} 個轉折點：")
-        
-        high_points = [tp for tp in identified_turning_points if tp[1] == 'high']
-        low_points = [tp for tp in identified_turning_points if tp[1] == 'low']
-        
-        print(f"   轉折高點 ({len(high_points)}個)：")
-        for i, (date, _, price) in enumerate(high_points):
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')}: {price:.2f}")
-        
-        print(f"   轉折低點 ({len(low_points)}個)：")
-        for i, (date, _, price) in enumerate(low_points):
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')}: {price:.2f}")
-        
-        # 🔍 新增：檢查轉折點交錯邏輯
-        print(f"\n📊 轉折點交錯檢查：")
-        
-        # 合併所有轉折點並按時間排序
-        all_turning_points = []
-        for date, point_type, price in identified_turning_points:
-            all_turning_points.append((date, point_type, price))
-        
-        all_turning_points.sort(key=lambda x: x[0])
-        
-        print(f"   按時間順序的轉折點：")
-        for i, (date, point_type, price) in enumerate(all_turning_points):
-            symbol = "🔺" if point_type == 'high' else "🔻"
-            print(f"     {i+1}. {date.strftime('%Y-%m-%d')} {symbol} {point_type} ({price:.2f})")
-        
-        # 檢查是否有連續相同類型的轉折點
-        consecutive_issues = []
-        for i in range(1, len(all_turning_points)):
-            prev_type = all_turning_points[i-1][1]
-            curr_type = all_turning_points[i][1]
-            if prev_type == curr_type:
-                consecutive_issues.append({
-                    'index': i,
-                    'prev': all_turning_points[i-1],
-                    'curr': all_turning_points[i]
-                })
-        
-        if consecutive_issues:
-            print(f"\n⚠️ 發現 {len(consecutive_issues)} 個連續相同類型轉折點問題：")
-            for issue in consecutive_issues:
-                prev_date, prev_type, prev_price = issue['prev']
-                curr_date, curr_type, curr_price = issue['curr']
-                print(f"     連續 {prev_type}: {prev_date.strftime('%Y-%m-%d')} → {curr_date.strftime('%Y-%m-%d')}")
-                
-                # 分析這兩個轉折點之間的穿越事件
-                between_events = [event for event in cross_events 
-                                if prev_date < event[0] <= curr_date]
-                print(f"       中間的穿越事件 ({len(between_events)}個): ", end="")
-                if between_events:
-                    event_summary = [f"{e[0].strftime('%m-%d')}({e[1]})" for e in between_events]
-                    print(" → ".join(event_summary))
-                else:
-                    print("無")
+        if alternating_ok:
+            print(f"\n✅ 高低點交替檢查: 通過")
         else:
-            print(f"   ✅ 所有轉折點都正確交錯")
+            print(f"\n❌ 高低點交替檢查: 失敗")
         
-        # 檢查穿越事件與轉折點的對應關係
-        print(f"\n🔄 穿越事件與轉折點對應關係檢查：")
-        for i, (cross_date, cross_type) in enumerate(cross_events):
-            print(f"   {i+1:2d}. {cross_date.strftime('%Y-%m-%d')} ({cross_type}):", end=" ")
-            
-            # 找出這個穿越事件應該對應的轉折點
-            expected_type = 'low' if cross_type == 'up' else 'high'
-            
-            # 查找在這個穿越事件之後是否有對應的轉折點被標記
-            found_corresponding = False
-            for tp_date, tp_type, tp_price in identified_turning_points:
-                # 轉折點應該在穿越事件的區間內
-                if i == 0:
-                    start_range = recent_df.index[0]
-                else:
-                    start_range = cross_events[i-1][0]
-                
-                if start_range <= tp_date <= cross_date and tp_type == expected_type:
-                    print(f"✅ 對應 {tp_date.strftime('%Y-%m-%d')} {expected_type}")
-                    found_corresponding = True
-                    break
-            
-            if not found_corresponding:
-                print(f"❌ 缺少對應的轉折{expected_type}點")
-                
-                # 詳細分析這個區間
-                if i == 0:
-                    period_start = recent_df.index[0]
-                else:
-                    period_start = cross_events[i-1][0]
-                
-                period_end = cross_date
-                period_data = recent_df.loc[period_start:period_end]
-                
-                if expected_type == 'low':
-                    actual_min_idx = period_data['Low'].idxmin()
-                    actual_min_price = period_data['Low'].min()
-                    print(f"       應該標記: {actual_min_idx.strftime('%Y-%m-%d')} 低點 ({actual_min_price:.2f})")
-                else:
-                    actual_max_idx = period_data['High'].idxmax()
-                    actual_max_price = period_data['High'].max()
-                    print(f"       應該標記: {actual_max_idx.strftime('%Y-%m-%d')} 高點 ({actual_max_price:.2f})")
+        # === 步驟5：視覺化 ===
+        print(f"\n{'='*80}")
+        print("📊 步驟5：生成診斷圖表")
+        print(f"{'='*80}")
         
-        # 步驟6：與原始算法結果比較
-        print(f"\n6️⃣ 步驟6：與原始算法結果比較")
-        try:
-            from src.baseRule.turning_point_identification import identify_turning_points
-            original_result = identify_turning_points(recent_df)
-            
-            orig_high_points = original_result[original_result['turning_high_point'] == 'O']
-            orig_low_points = original_result[original_result['turning_low_point'] == 'O']
-            
-            print(f"   原始算法結果：")
-            print(f"     轉折高點：{len(orig_high_points)} 個")
-            print(f"     轉折低點：{len(orig_low_points)} 個")
-            
-            print(f"   原始算法的轉折低點：")
-            for i, (_, row) in enumerate(orig_low_points.iterrows()):
-                print(f"     {i+1}. {row['date']}")
-            
-            # 檢查是否有遺漏
-            manual_low_dates = set([tp[0].strftime('%Y-%m-%d') for tp in low_points])
-            original_low_dates = set(orig_low_points['date'].tolist())
-            
-            missing_in_original = manual_low_dates - original_low_dates
-            extra_in_original = original_low_dates - manual_low_dates
-            
-            if missing_in_original:
-                print(f"   ⚠️ 原始算法遺漏的轉折低點：{missing_in_original}")
-            if extra_in_original:
-                print(f"   ⚠️ 原始算法多出的轉折低點：{extra_in_original}")
-            
-            if not missing_in_original and not extra_in_original:
-                print(f"   ✅ 手動執行結果與原始算法一致")
-            
-        except Exception as e:
-            print(f"   ❌ 無法載入原始算法進行比較：{e}")
-        
-        # 創建診斷圖表
-        create_debug_chart(stock_id, recent_df, cross_events, identified_turning_points)
+        create_diagnostic_chart(recent_df, turning_points_df, stock_id)
         
         return True
         
     except Exception as e:
-        print(f"❌ 診斷過程中發生錯誤: {e}")
+        print(f"❌ 診斷過程發生錯誤: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 
-_configured_font_family = None
-_registered_local_fonts = False
-
-
-def _register_local_fonts():
-    """Register bundled font files (if any) with matplotlib's font manager."""
-    global _registered_local_fonts
-    if _registered_local_fonts:
-        return
-
-    local_font_paths = [
-        os.path.join(os.path.dirname(__file__), 'assets', 'fonts', 'NotoSansCJKtc-Regular.otf'),
-    ]
-
-    for font_path in local_font_paths:
-        if os.path.isfile(font_path):
-            font_manager.fontManager.addfont(font_path)
-
-    _registered_local_fonts = True
-
-
-def _font_is_available(font_family: str) -> bool:
-    """Return True if matplotlib can locate the requested font family."""
-    try:
-        prop = font_manager.FontProperties(family=font_family)
-        font_manager.findfont(prop, fallback_to_default=False)
-        return True
-    except (ValueError, RuntimeError):
-        return False
-
-
-def _ensure_plot_fonts():
-    """Pick a font family that exists on this machine so Unicode text renders cleanly."""
-    global _configured_font_family
-    if _configured_font_family:
-        return _configured_font_family
-
-    _register_local_fonts()
-
-    preferred_order = [
-        'Microsoft JhengHei',
-        'Arial Unicode MS',
-        'SimHei',
-        'Noto Sans CJK TC',
-        'Noto Sans CJK SC',
-        'PingFang TC',
-        'PingFang SC',
-        'Heiti TC',
-        'Heiti SC',
-        'STHeiti',
-        'WenQuanYi Zen Hei',
-        'Source Han Sans TC',
-        'Source Han Sans SC',
-        'DejaVu Sans',
-    ]
-
-    for family in preferred_order:
-        if _font_is_available(family):
-            plt.rcParams['font.sans-serif'] = [family]
-            _configured_font_family = family
-            break
-    else:
-        # Fall back to the default sans-serif family if nothing matched.
-        default_family = plt.rcParams.get('font.sans-serif', ['DejaVu Sans'])
-        _configured_font_family = default_family[0] if default_family else 'DejaVu Sans'
-
-    plt.rcParams['axes.unicode_minus'] = False
-    return _configured_font_family
-
-
-def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_points):
+def create_diagnostic_chart(df, turning_points_df, stock_id):
     """
     創建診斷圖表
+    
+    包含：
+    1. K線圖 + MA5
+    2. 轉折點標記
+    3. 正價/負價群組背景色
+    4. 穿越事件標記
     """
     try:
-        chosen_font = _ensure_plot_fonts()
-        plt.figure(figsize=(20, 14))
-        if chosen_font not in plt.rcParams.get('font.sans-serif', []):
-            plt.rcParams['font.sans-serif'] = [chosen_font]
+        setup_chinese_font()
         
-        # 主圖：K線圖 + MA5 + 穿越點 + 轉折點
-        plt.subplot(3, 1, 1)
-        dates = recent_df.index
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), 
+                                        gridspec_kw={'height_ratios': [3, 1]})
         
-        # 繪製K棒
-        for i, date in enumerate(dates):
-            row = recent_df.loc[date]
-            open_price = row['Open']
-            high_price = row['High']
-            low_price = row['Low']
-            close_price = row['Close']
+        dates = df.index
+        
+        # === 上圖：K線 + MA5 + 轉折點 ===
+        
+        # 繪製K線（模仿專業看盤軟體風格）
+        for i, (date, row) in enumerate(df.iterrows()):
+            is_up = row['Close'] >= row['Open']  # 上漲或平盤
             
-            is_up = close_price >= open_price
+            # 計算實體的上下邊界
+            body_top = max(row['Close'], row['Open'])
+            body_bottom = min(row['Close'], row['Open'])
+            body_height = abs(row['Close'] - row['Open'])
             
-            # 繪製上下影線
-            plt.plot([date, date], [low_price, high_price], 
-                    color='black', linewidth=0.8, alpha=0.8)
+            # 計算K線實體的中心時間點（用於繪製影線）
+            bar_width = pd.Timedelta(hours=16)  # K線寬度
+            date_center = date + bar_width / 2  # 實體中心
             
-            # 繪製實體K棒
-            body_height = abs(close_price - open_price)
-            body_bottom = min(open_price, close_price)
-            bar_width = pd.Timedelta(days=0.6)
+            # 繪製上影線（從實體頂部到最高價，在中心位置）
+            if row['High'] > body_top:
+                ax1.plot([date_center, date_center], [body_top, row['High']], 
+                        color='black', linewidth=0.8, alpha=0.8, solid_capstyle='butt')
             
-            if is_up:
-                rect = plt.Rectangle((date - bar_width/2, body_bottom), 
-                                   bar_width, body_height, 
-                                   facecolor='white', edgecolor='red', 
-                                   linewidth=1.2, alpha=0.9)
-            else:
-                rect = plt.Rectangle((date - bar_width/2, body_bottom), 
-                                   bar_width, body_height, 
-                                   facecolor='green', edgecolor='green', 
-                                   linewidth=1.2, alpha=0.9)
+            # 繪製下影線（從實體底部到最低價，在中心位置）
+            if row['Low'] < body_bottom:
+                ax1.plot([date_center, date_center], [row['Low'], body_bottom], 
+                        color='black', linewidth=0.8, alpha=0.8, solid_capstyle='butt')
             
-            plt.gca().add_patch(rect)
+            # 繪製K線實體
+            if body_height > 0.01:  # 有實體
+                if is_up:
+                    # 紅K：空心（只有邊框）
+                    ax1.add_patch(Rectangle((date, body_bottom), 
+                                           bar_width, body_height,
+                                           facecolor='white', 
+                                           edgecolor='red', 
+                                           linewidth=1.2, 
+                                           alpha=1.0))
+                else:
+                    # 綠K：實心
+                    ax1.add_patch(Rectangle((date, body_bottom), 
+                                           bar_width, body_height,
+                                           facecolor='green', 
+                                           edgecolor='darkgreen', 
+                                           linewidth=1.0, 
+                                           alpha=0.9))
+            else:  # 十字線（開盤=收盤）
+                line_color = 'red' if is_up else 'green'
+                ax1.plot([date, date + bar_width], 
+                        [row['Close'], row['Close']], 
+                        color=line_color, linewidth=1.5, alpha=0.9)
         
         # 繪製MA5
-        plt.plot(dates, recent_df['ma5'], 
-                color='blue', linewidth=2, linestyle='-', 
-                alpha=0.8, label='5MA', zorder=5)
+        ax1.plot(dates, df['ma5'], label='MA5', color='blue', linewidth=1.5, alpha=0.7)
         
-        # 標記轉折點並連線
-        ordered_turning = sorted(identified_turning_points, key=lambda x: x[0])
-        high_series = recent_df['High'].dropna() if 'High' in recent_df.columns else pd.Series(dtype=float)
-        low_series = recent_df['Low'].dropna() if 'Low' in recent_df.columns else pd.Series(dtype=float)
-        chart_range = float(high_series.max() - low_series.min()) if not high_series.empty and not low_series.empty else 0.0
-        if chart_range <= 0:
-            close_series = recent_df['Close'].dropna() if 'Close' in recent_df.columns else pd.Series(dtype=float)
-            if not close_series.empty:
-                chart_range = float(close_series.max() - close_series.min())
-        base_marker_offset = chart_range * 0.005 if chart_range and chart_range > 0 else 0.1
-        # Control how wide and tall the outline triangles are relative to the price offset.
-        triangle_width = pd.Timedelta(days=0.28)
-
-        for idx_tp, (date, point_type, price) in enumerate(ordered_turning):
-            color = 'darkred' if point_type == 'high' else 'darkblue'
-            first_same = all(ordered_turning[j][1] != point_type for j in range(idx_tp))
-            
-            row_data = None
-            if date in recent_df.index:
-                row_data = recent_df.loc[date]
-                if isinstance(row_data, pd.DataFrame):
-                    row_data = row_data.iloc[-1]
-            
-            if row_data is not None:
-                row_high = float(row_data['High']) if 'High' in row_data and pd.notna(row_data['High']) else float(price)
-                row_low = float(row_data['Low']) if 'Low' in row_data and pd.notna(row_data['Low']) else float(price)
-            else:
-                row_high = float(price)
-                row_low = float(price)
-            
-            candle_range = float(row_high - row_low)
-            per_point_offset = max(base_marker_offset, candle_range * 0.2) if candle_range > 0 else base_marker_offset
-            
-            # Build generous vertical clearance so triangle outlines never sit on top of the candle.
-            clearance_candidates = [per_point_offset * 1.4, base_marker_offset * 1.8]
-            marker_height_candidates = [per_point_offset * 1.6, base_marker_offset * 2.2]
-            if chart_range and chart_range > 0:
-                clearance_candidates.append(chart_range * 0.012)
-                marker_height_candidates.append(chart_range * 0.018)
-            if candle_range > 0:
-                clearance_candidates.append(candle_range * 0.45)
-                marker_height_candidates.append(candle_range * 0.75)
-
-            candle_clearance = max(clearance_candidates) if clearance_candidates else base_marker_offset * 2.0
-            marker_height = max(marker_height_candidates) if marker_height_candidates else candle_clearance * 0.9
-
-            if point_type == 'high':
-                anchor_price = row_high
-                triangle_base = anchor_price + candle_clearance
-                tip_price = triangle_base + marker_height
-            else:
-                anchor_price = row_low
-                triangle_base = anchor_price - candle_clearance
-                tip_price = triangle_base - marker_height
-
-            x_points = [date, date - triangle_width, date + triangle_width]
-            y_points = [tip_price, triangle_base, triangle_base]
-            
-            # Draw a light connector so readers can still spot the exact price level
-            plt.vlines(date, anchor_price, triangle_base,
-                       colors=color, linestyles='dotted', linewidth=1,
-                       alpha=0.7, zorder=14)
-            
-            plt.fill(x_points, y_points,
-                     fill=False, edgecolor=color, linewidth=1.5, zorder=15,
-                     label=('轉折高點' if point_type == 'high' else '轉折低點') if first_same else None)
-
-        if len(ordered_turning) > 1:
-            turning_dates = [tp[0] for tp in ordered_turning]
-            turning_prices = [tp[2] for tp in ordered_turning]
-            plt.plot(turning_dates, turning_prices,
-                     color='brown', linewidth=1.6, linestyle='-',
-                     alpha=0.85, zorder=14, label='轉折連線')
-
-        plt.title(f'{stock_id} 轉折點算法執行過程診斷', fontsize=16, fontweight='bold')
-        plt.ylabel('價格', fontsize=12)
-        plt.legend(fontsize=10, loc='upper left')
-        plt.grid(True, alpha=0.3)
+        # 標記轉折高點
+        high_points = turning_points_df[turning_points_df['turning_high_point'] == 'O']
+        for idx, row in high_points.iterrows():
+            date_obj = pd.to_datetime(row['date'])
+            if date_obj in df.index:
+                price = df.loc[date_obj, 'High']
+                offset = (df['High'].max() - df['Low'].min()) * 0.015
+                ax1.scatter(date_obj + pd.Timedelta(hours=8), price + offset, 
+                           color='darkred', s=50, marker='v', 
+                           edgecolors='red', linewidths=0.5,
+                           zorder=5, label='轉折高點' if idx == high_points.index[0] else '')
         
-        # 子圖2：收盤價與MA5關係
-        plt.subplot(3, 1, 2)
-        plt.plot(dates, recent_df['Close'], label='收盤價', color='black', linewidth=1)
-        plt.plot(dates, recent_df['ma5'], label='MA5', color='blue', linewidth=2)
+        # 標記轉折低點
+        low_points = turning_points_df[turning_points_df['turning_low_point'] == 'O']
+        for idx, row in low_points.iterrows():
+            date_obj = pd.to_datetime(row['date'])
+            if date_obj in df.index:
+                price = df.loc[date_obj, 'Low']
+                offset = (df['High'].max() - df['Low'].min()) * 0.015
+                ax1.scatter(date_obj + pd.Timedelta(hours=8), price - offset, 
+                           color='darkgreen', s=50, marker='^', 
+                           edgecolors='green', linewidths=0.5,
+                           zorder=5, label='轉折低點' if idx == low_points.index[0] else '')
         
-        # 標記穿越點
-        plt.title('收盤價 vs MA5 關係圖', fontsize=14)
-        plt.ylabel('價格', fontsize=12)
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
+        ax1.set_title(f'{stock_id} 轉折點診斷圖 (書本規格版)', fontsize=16, fontweight='bold')
+        ax1.set_ylabel('價格', fontsize=12)
+        ax1.legend(loc='upper left', fontsize=10)
+        ax1.grid(True, alpha=0.3)
         
-        # 子圖3：穿越信號
-        plt.subplot(3, 1, 3)
-        above_ma5 = recent_df['close_above_ma5'].astype(int)
-        plt.plot(dates, above_ma5, label='收盤價高於MA5', color='purple', linewidth=2)
-        plt.fill_between(dates, 0, above_ma5, alpha=0.3, color='purple')
+        # === 下圖：收盤價與MA5的相對位置 ===
         
-        # 標記穿越點
-        plt.title('收盤價相對於MA5位置 (1=上方, 0=下方)', fontsize=14)
-        plt.ylabel('位置', fontsize=12)
-        plt.xlabel('日期', fontsize=12)
-        plt.legend(fontsize=10)
-        plt.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
+        close_above_ma5 = (df['Close'] > df['ma5']).astype(int)
+        
+        ax2.fill_between(dates, 0, close_above_ma5, 
+                        where=(close_above_ma5 == 1), 
+                        alpha=0.3, color='red', label='正價群組(收盤>MA5)')
+        
+        ax2.fill_between(dates, 0, close_above_ma5, 
+                        where=(close_above_ma5 == 0), 
+                        alpha=0.3, color='green', label='負價群組(收盤<MA5)')
+        
+        ax2.set_title('收盤價與MA5相對位置', fontsize=14)
+        ax2.set_ylabel('位置', fontsize=12)
+        ax2.set_xlabel('日期', fontsize=12)
+        ax2.set_ylim(-0.1, 1.1)
+        ax2.legend(fontsize=10)
+        ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
         
         # 保存圖表
         output_dir = 'output/debug_charts'
         os.makedirs(output_dir, exist_ok=True)
-        chart_path = f'{output_dir}/{stock_id}_turning_point_debug.png'
+        chart_path = f'{output_dir}/{stock_id}_turning_point_debug_v2.png'
         
         plt.savefig(chart_path, dpi=300, bbox_inches='tight')
         print(f"\n✅ 診斷圖表已保存至: {chart_path}")
-        plt.show()
+        plt.close()
         
     except Exception as e:
         print(f"❌ 創建診斷圖表時發生錯誤: {e}")
@@ -557,9 +421,16 @@ def create_debug_chart(stock_id, recent_df, cross_events, identified_turning_poi
 
 def main():
     """主程式"""
-    print("轉折點算法執行過程診斷程式")
-    print("=" * 60)
-    print("逐步追蹤 turning_point_identification.py 的執行邏輯")
+    print("="*80)
+    print("轉折點算法診斷程式 v2.0 (書本規格版)")
+    print("="*80)
+    print("診斷功能：")
+    print("  1. 追蹤穿越事件")
+    print("  2. 顯示群組劃分")
+    print("  3. 監控極值位移過程")
+    print("  4. 驗證高低點交替")
+    print("  5. 生成視覺化圖表")
+    print("="*80)
     
     stock_id = input("\n請輸入股票代碼 (預設2330): ").strip() or '2330'
     
@@ -574,9 +445,15 @@ def main():
     success = debug_turning_point_execution(stock_id, days)
     
     if success:
-        print(f"\n🎉 診斷完成！請檢查控制台輸出找出問題所在。")
+        print(f"\n{'='*80}")
+        print("🎉 診斷完成！")
+        print("="*80)
+        print("\n請查看：")
+        print("  1. 控制台輸出 - 詳細的執行過程")
+        print("  2. output/debug_charts/ - 視覺化診斷圖表")
     else:
         print(f"\n❌ 診斷失敗！")
+
 
 if __name__ == "__main__":
     main()

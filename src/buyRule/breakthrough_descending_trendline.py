@@ -13,9 +13,14 @@
 日期：2025-01-21
 """
 
-from typing import Optional
+from __future__ import annotations
+
+from typing import Dict, Optional
 import pandas as pd
-import numpy as np
+
+from src.baseRule.turning_point_identification import check_turning_points
+from src.baseRule.wave_point_identification import check_wave_points
+from .long_term_descending_trendline import identify_descending_trendlines
 
 
 def check_breakthrough_descending_trendline(
@@ -289,6 +294,127 @@ def _build_line_key(line: dict) -> tuple:
         round(line.get('slope', 0.0), 6),
         round(line.get('intercept', 0.0), 3)
     )
+
+
+def check_descending_trendline(
+    df: pd.DataFrame,
+    turning_points_df: Optional[pd.DataFrame] = None,
+    wave_points_df: Optional[pd.DataFrame] = None,
+    *,
+    debug: bool = False,
+    trendline_kwargs: Optional[Dict] = None,
+    breakthrough_kwargs: Optional[Dict] = None,
+) -> pd.DataFrame:
+    """
+    一站式入口：先識別波段高點，再生成下降趨勢線並檢查突破。
+
+    Args:
+        df: 原始 K 線資料，索引需為日期。
+        turning_points_df: 已計算的轉折點結果（可選，未提供會自動計算）。
+        wave_points_df: 已計算的波段點結果（可選，未提供會自動計算）。
+        debug: 是否輸出波段偵測除錯訊息。
+        trendline_kwargs: 傳給 `identify_descending_trendlines` 的參數。
+        breakthrough_kwargs: 傳給 `check_breakthrough_descending_trendline` 的參數。
+
+    Returns:
+        DataFrame: 包含突破檢查結果的表格。
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df_sorted = df.sort_index()
+
+    if turning_points_df is None or turning_points_df.empty:
+        turning_points_df = check_turning_points(df_sorted)
+
+    if wave_points_df is None or wave_points_df.empty:
+        wave_points_df = _prepare_wave_points(df_sorted, turning_points_df, debug=debug)
+
+    trendline_kwargs = trendline_kwargs or {}
+    trendlines = identify_descending_trendlines(
+        df_sorted,
+        wave_points_df,
+        **trendline_kwargs,
+    )
+
+    breakthrough_kwargs = breakthrough_kwargs or {}
+    result_df = check_breakthrough_descending_trendline(
+        df_sorted,
+        trendlines,
+        **breakthrough_kwargs,
+    )
+
+    if result_df.empty:
+        return result_df
+
+    column_mapping = {
+        "breakthrough_check": "descending_trendline_breakthrough_check",
+        "breakthrough_type": "descending_trendline_breakthrough_type",
+        "breakthrough_pct": "descending_trendline_breakthrough_pct",
+        "volume_ratio": "descending_trendline_volume_ratio",
+        "trendline_price": "descending_trendline_trendline_price",
+        "close_price": "descending_trendline_close_price",
+        "signal_strength": "descending_trendline_signal_strength",
+    }
+
+    return result_df.rename(columns=column_mapping)
+
+
+def _prepare_wave_points(
+    df: pd.DataFrame,
+    turning_points_df: pd.DataFrame,
+    *,
+    debug: bool = False,
+) -> pd.DataFrame:
+    """依據轉折點結果產出波段點資料。"""
+    if turning_points_df is None or turning_points_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "date",
+                "wave_high_point",
+                "wave_low_point",
+                "trend_type",
+                "pending_reversal",
+            ]
+        )
+
+    df_reset = df.reset_index()
+    index_col = df_reset.columns[0]
+    df_reset[index_col] = pd.to_datetime(df_reset[index_col], errors="coerce")
+
+    turning_points = turning_points_df.copy()
+    if "date" not in turning_points.columns:
+        raise ValueError("turning_points_df 缺少 'date' 欄位")
+
+    turning_points = turning_points.dropna(subset=["date"])
+    turning_points["date"] = pd.to_datetime(
+        turning_points["date"],
+        errors="coerce",
+    )
+    turning_points = turning_points.rename(columns={"date": "turning_date"})
+
+    merged = pd.merge(
+        df_reset,
+        turning_points,
+        left_on=index_col,
+        right_on="turning_date",
+        how="left",
+    )
+
+    if "turning_high_point" not in merged.columns:
+        merged["turning_high_point"] = ""
+    else:
+        merged["turning_high_point"] = merged["turning_high_point"].fillna("")
+
+    if "turning_low_point" not in merged.columns:
+        merged["turning_low_point"] = ""
+    else:
+        merged["turning_low_point"] = merged["turning_low_point"].fillna("")
+
+    merged = merged.drop(columns=["turning_date"])
+    merged.set_index(index_col, inplace=True)
+
+    return check_wave_points(merged, debug=debug)
 
 
 if __name__ == "__main__":

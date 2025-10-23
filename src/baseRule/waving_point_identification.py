@@ -266,7 +266,11 @@ class WavingPointIdentifier:
                 self.state.trend_start_date = Now.date
                 
                 # 標記波段低點
-                self._mark_wave_low_point(L1.date, L2.date, df, result)
+                if self.state.last_wave_high and self.state.last_wave_high.date <= L2.date:
+                    start_date = self.state.last_wave_high.date
+                else:
+                    start_date = L1.date
+                self._mark_wave_low_point(start_date, L2.date, df, result)
             
             # 情境B：底底低（L2 < L1）
             else:
@@ -331,7 +335,11 @@ class WavingPointIdentifier:
                 self.state.trend_start_date = Now.date
                 
                 # 標記波段高點
-                self._mark_wave_high_point(H1.date, H2.date, df, result)
+                if self.state.last_wave_low and self.state.last_wave_low.date <= H2.date:
+                    start_date = self.state.last_wave_low.date
+                else:
+                    start_date = H1.date
+                self._mark_wave_high_point(start_date, H2.date, df, result)
             
             # 情境B：頭頭高（H2 > H1）
             else:

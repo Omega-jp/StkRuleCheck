@@ -73,7 +73,8 @@ def get_rule_display_name(rule_name):
         'macd_golden_cross_above_zero': 'MACD黃金交叉零軸上',
         'macd_golden_cross_above_zero_positive_histogram': 'MACD黃金交叉零軸上正柱',
         'diamond_cross': '鑽石劍',
-        'breakthrough_resistance_line': '壓力線突破'
+        'breakthrough_resistance_line': '壓力線突破',
+        'breakthrough_descending_trendline': '下降趨勢線突破',
     }
     return name_mapping.get(rule_name, rule_name)
 
@@ -132,7 +133,7 @@ def main():
     summary_df = pd.DataFrame(summary_data)
     
     # 重新排列欄位順序，讓更重要的規則排在前面
-    column_order = ['StockID', 'StockName', '壓力線突破', '三陽開泰', '四海游龍', 
+    column_order = ['StockID', 'StockName', '壓力線突破', '下降趨勢線突破', '三陽開泰', '四海游龍', 
                    'MACD黃金交叉零軸上', 'MACD黃金交叉零軸上正柱', '鑽石劍']
     
     # 確保所有欄位都存在，如果不存在則添加

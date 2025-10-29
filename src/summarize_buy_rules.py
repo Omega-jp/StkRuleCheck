@@ -52,6 +52,21 @@ def get_latest_result(df, rule_name, stock_id):
             df['ma5'] = df['Close'].rolling(window=5, min_periods=1).mean()
         turning_points_df = identify_turning_points(df)
         rule_df = check_func(df, turning_points_df)
+    elif 'impulse_macd_buy_rule' == rule_name:
+        # Impulse MACD 規則使用綜合買入檢查
+        check_func = getattr(module, 'check_impulse_macd_combined_buy', None)
+        if check_func is None:
+            return 'Error: Function not found'
+
+        required_cols = ['ImpulseMACD', 'ImpulseSignal', 'ImpulseHistogram']
+        if any(col not in df.columns for col in required_cols):
+            try:
+                from src.data_initial.calculate_impulse_macd import calculate_impulse_macd
+                df = calculate_impulse_macd(df)
+            except Exception as exc:
+                return f"Error: {exc}"
+
+        rule_df = check_func(df, require_positive_histo=True)
     else:
         check_func = getattr(module, f'check_{rule_name.replace("breakthrough_", "")}', None)
         if check_func is None:
@@ -63,6 +78,10 @@ def get_latest_result(df, rule_name, stock_id):
     
     latest = rule_df.iloc[-1]
     check_col = next((col for col in rule_df.columns if 'check' in col), None)
+    if check_col is None:
+        check_col = next((col for col in rule_df.columns if col.endswith('_buy')), None)
+    if check_col is None:
+        check_col = next((col for col in rule_df.columns if 'signal' in col), None)
     return latest[check_col] if check_col else 'No check column'
 
 def get_rule_display_name(rule_name):
@@ -75,6 +94,7 @@ def get_rule_display_name(rule_name):
         'diamond_cross': '鑽石劍',
         'breakthrough_resistance_line': '壓力線突破',
         'breakthrough_descending_trendline': '下降趨勢線突破',
+        'impulse_macd_buy_rule': 'Impulse MACD 買入',
     }
     return name_mapping.get(rule_name, rule_name)
 
@@ -134,7 +154,7 @@ def main():
     
     # 重新排列欄位順序，讓更重要的規則排在前面
     column_order = ['StockID', 'StockName', '壓力線突破', '下降趨勢線突破', '三陽開泰', '四海游龍', 
-                   'MACD黃金交叉零軸上', 'MACD黃金交叉零軸上正柱', '鑽石劍']
+                   'MACD黃金交叉零軸上', 'MACD黃金交叉零軸上正柱', '鑽石劍', 'Impulse MACD 買入']
     
     # 確保所有欄位都存在，如果不存在則添加
     for col in column_order:

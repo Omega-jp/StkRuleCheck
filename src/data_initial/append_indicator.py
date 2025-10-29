@@ -3,11 +3,12 @@ import os
 from src.data_initial.calculate_kd import calculate_kd
 from src.data_initial.calculate_macd import calculate_macd
 from src.data_initial.calculate_ma import calculate_ma
+from src.data_initial.calculate_impulse_macd import calculate_impulse_macd
 
 def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
     """
-    Reads CSV files from input_dir, calculates KD and MACD, and appends them to the DataFrame,
-    then saves the updated DataFrame back to the output_dir.
+    Reads CSV files from input_dir, calculates KD, MACD, MA, and Impulse MACD, 
+    and appends them to the DataFrame, then saves the updated DataFrame back to the output_dir.
     """
     if not os.path.exists(input_dir):
         print(f"Error: Input directory '{input_dir}' not found.")
@@ -34,7 +35,12 @@ def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
                     continue
 
                 # Define columns to remove if they exist
-                columns_to_remove = ['RSV', '%K', '%D', 'EMA_short', 'EMA_long', 'MACD', 'Signal', 'Histogram', 'MA_5', 'MA_10', 'MA_20', 'MA_60', 'MA_120']
+                columns_to_remove = [
+                    'RSV', '%K', '%D', 
+                    'EMA_short', 'EMA_long', 'MACD', 'Signal', 'Histogram', 
+                    'MA_5', 'MA_10', 'MA_20', 'MA_60', 'MA_120',
+                    'ImpulseMACD', 'ImpulseSignal', 'ImpulseHistogram'
+                ]
                 df.drop(columns=[col for col in columns_to_remove if col in df.columns], inplace=True)
 
                 # Calculate KD
@@ -60,10 +66,17 @@ def append_indicators_to_csv(input_dir='Data/kbar', output_dir='Data/kbar'):
                     ma_df[col] = ma_df[col].round(2)
                 df = pd.concat([df, ma_df], axis=1)
 
+                # Calculate Impulse MACD
+                impulse_macd_df = calculate_impulse_macd(df.copy())
+                # Round Impulse MACD values to two decimal places
+                for col in impulse_macd_df.columns:
+                    impulse_macd_df[col] = impulse_macd_df[col].round(2)
+                df = pd.concat([df, impulse_macd_df], axis=1)
+
                 # Save the updated DataFrame
                 output_file_path = os.path.join(output_dir, filename)
                 df.to_csv(output_file_path)
-                print(f"Indicators appended and saved to {output_file_path}")
+                print(f"Indicators (including Impulse MACD) appended and saved to {output_file_path}")
 
             except Exception as e:
                 print(f"Error processing {filename}: {e}")

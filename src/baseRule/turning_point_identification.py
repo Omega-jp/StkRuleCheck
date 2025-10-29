@@ -171,7 +171,10 @@ def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
     
     # 計算收盤價與MA5的相對位置
     df_cross['close_above_ma5'] = df_cross['Close'] > df_cross['ma5']
-    df_cross['prev_close_above_ma5'] = df_cross['close_above_ma5'].shift(1)
+    # Use nullable boolean dtype to keep NA support without implicit downcasting
+    df_cross['prev_close_above_ma5'] = (
+        df_cross['close_above_ma5'].shift(1).astype('boolean')
+    )
     
     # ⚠️ 單日穿越：只需要前後一天比較
     # 向上穿越：前一天在MA5下方或等於，當天在MA5上方

@@ -12,8 +12,9 @@ def check_resistance_line_breakthrough(df: pd.DataFrame, turning_points_df: pd.D
     2. 計算壓力線
        - 以當前K棒為基準，往前找最近兩個轉折高點
        - 利用兩點畫出壓力切線（阻力線）
+       - 同時使用最近一個轉折高點畫出水平壓力線
     3. 突破檢測
-       - 檢查當前收盤價是否向上穿越（CrossOver）壓力線
+       - 檢查當前收盤價是否向上穿越（CrossOver）任一壓力線
        - 前一日收盤價在壓力線下方，當日收盤價在壓力線上方
     
     Args:
@@ -62,56 +63,47 @@ def check_resistance_line_breakthrough(df: pd.DataFrame, turning_points_df: pd.D
         # 初始化為不滿足條件
         is_breakthrough = False
         
-        # 需要至少兩個轉折高點才能畫壓力線
-        if len(turning_high_points) < 2:
-            results.append({'date': date, 'resistance_line_breakthrough_check': ''})
-            continue
-        
         # 找出當前日期之前的轉折高點
         previous_high_points = [
             hp for hp in turning_high_points 
             if hp['index'] < i  # 只考慮當前日期之前的轉折高點
         ]
         
-        # 需要至少兩個之前的轉折高點
-        if len(previous_high_points) < 2:
-            results.append({'date': date, 'resistance_line_breakthrough_check': ''})
-            continue
-        
-        # 取最近的兩個轉折高點
-        recent_high_points = previous_high_points[-2:]
-        
-        # 獲取兩個高點的數據
-        point1 = recent_high_points[0]
-        point2 = recent_high_points[1]
-        
-        # 計算壓力線在當前日期的價格
-        # 使用線性插值：y = y1 + (y2-y1) * (x-x1) / (x2-x1)
-        x1, y1 = point1['index'], point1['high_price']
-        x2, y2 = point2['index'], point2['high_price']
-        
-        # 避免除以零的情況
-        if x2 == x1:
-            results.append({'date': date, 'resistance_line_breakthrough_check': ''})
-            continue
-        
-        # 計算當前日期在壓力線上的理論價格
-        current_resistance_price = y1 + (y2 - y1) * (i - x1) / (x2 - x1)
-        
-        # 檢查是否為突破（CrossOver）
         current_close = row['Close']
         
-        # 需要有前一日數據進行比較
-        if i > 0:
-            prev_row = df.iloc[i-1]
-            prev_close = prev_row['Close']
+        # 橫向壓力線：使用最近一個轉折高點的高點價格作為壓力
+        if previous_high_points and i > 0:
+            last_high_point = previous_high_points[-1]
+            horizontal_resistance_price = last_high_point['high_price']
             
-            # 計算前一日的壓力線價格
-            prev_resistance_price = y1 + (y2 - y1) * ((i-1) - x1) / (x2 - x1)
-            
-            # 突破條件：前一日收盤價在壓力線下方，當日收盤價在壓力線上方
-            if (prev_close <= prev_resistance_price) and (current_close > current_resistance_price):
+            prev_close = df.iloc[i - 1]['Close']
+            if (prev_close <= horizontal_resistance_price) and (current_close > horizontal_resistance_price):
                 is_breakthrough = True
+        
+        # 斜率壓力線：需要至少兩個之前的轉折高點
+        if len(previous_high_points) >= 2:
+            recent_high_points = previous_high_points[-2:]
+            
+            # 獲取兩個高點的數據
+            point1 = recent_high_points[0]
+            point2 = recent_high_points[1]
+            
+            x1, y1 = point1['index'], point1['high_price']
+            x2, y2 = point2['index'], point2['high_price']
+            
+            # 避免除以零的情況
+            if x2 != x1:
+                # 計算壓力線在當前及前一日的價格
+                current_resistance_price = y1 + (y2 - y1) * (i - x1) / (x2 - x1)
+                
+                if i > 0:
+                    prev_row = df.iloc[i-1]
+                    prev_close = prev_row['Close']
+                    prev_resistance_price = y1 + (y2 - y1) * ((i-1) - x1) / (x2 - x1)
+                    
+                    # 突破條件：前一日收盤價在壓力線下方，當日收盤價在壓力線上方
+                    if (prev_close <= prev_resistance_price) and (current_close > current_resistance_price):
+                        is_breakthrough = True
         
         # 添加結果
         if is_breakthrough:
@@ -132,6 +124,9 @@ def get_resistance_line_data(df: pd.DataFrame, turning_points_df: pd.DataFrame =
     
     Returns:
         pd.DataFrame: 包含每日壓力線價格的DataFrame
+                      - resistance_price: 兩個轉折高點所形成的壓力線價格
+                      - horizontal_resistance_price: 最近轉折高點形成的水平壓力價格
+                      - last_high_point_date/price: 最近轉折高點資訊
     """
     # 如果未提供轉折點數據，則計算它
     if turning_points_df is None:
@@ -172,43 +167,41 @@ def get_resistance_line_data(df: pd.DataFrame, turning_points_df: pd.DataFrame =
             if hp['index'] < i
         ]
         
+        # 預設輸出
+        resistance_entry = {
+            'date': date,
+            'resistance_price': np.nan,
+            'horizontal_resistance_price': np.nan,
+            'last_high_point_date': '',
+            'last_high_point_price': np.nan,
+            'point1_date': '',
+            'point1_price': np.nan,
+            'point2_date': '',
+            'point2_price': np.nan
+        }
+        
+        if previous_high_points:
+            last_high_point = previous_high_points[-1]
+            resistance_entry['horizontal_resistance_price'] = last_high_point['high_price']
+            resistance_entry['last_high_point_date'] = last_high_point['date'].strftime('%Y-%m-%d')
+            resistance_entry['last_high_point_price'] = last_high_point['high_price']
+        
         if len(previous_high_points) >= 2:
             # 取最近的兩個轉折高點
             recent_high_points = previous_high_points[-2:]
             point1 = recent_high_points[0]
             point2 = recent_high_points[1]
             
-            # 計算壓力線價格
             x1, y1 = point1['index'], point1['high_price']
             x2, y2 = point2['index'], point2['high_price']
             
             if x2 != x1:
-                resistance_price = y1 + (y2 - y1) * (i - x1) / (x2 - x1)
-                resistance_data.append({
-                    'date': date,
-                    'resistance_price': resistance_price,
-                    'point1_date': point1['date'].strftime('%Y-%m-%d'),
-                    'point1_price': point1['high_price'],
-                    'point2_date': point2['date'].strftime('%Y-%m-%d'),
-                    'point2_price': point2['high_price']
-                })
-            else:
-                resistance_data.append({
-                    'date': date,
-                    'resistance_price': np.nan,
-                    'point1_date': '',
-                    'point1_price': np.nan,
-                    'point2_date': '',
-                    'point2_price': np.nan
-                })
-        else:
-            resistance_data.append({
-                'date': date,
-                'resistance_price': np.nan,
-                'point1_date': '',
-                'point1_price': np.nan,
-                'point2_date': '',
-                'point2_price': np.nan
-            })
+                resistance_entry['resistance_price'] = y1 + (y2 - y1) * (i - x1) / (x2 - x1)
+                resistance_entry['point1_date'] = point1['date'].strftime('%Y-%m-%d')
+                resistance_entry['point1_price'] = point1['high_price']
+                resistance_entry['point2_date'] = point2['date'].strftime('%Y-%m-%d')
+                resistance_entry['point2_price'] = point2['high_price']
+        
+        resistance_data.append(resistance_entry)
     
     return pd.DataFrame(resistance_data)

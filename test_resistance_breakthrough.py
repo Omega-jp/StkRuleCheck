@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-簡化的單股壓力線突破測試程式 - 標記所有轉折高點和轉折低點，只畫被突破的壓力線
+簡化的單股壓力線突破測試程式 - 標記所有轉折點、繪製被突破的壓力線與水平壓力線
 """
 
 import pandas as pd
@@ -9,10 +9,15 @@ import numpy as np
 import os
 import sys
 import matplotlib.pyplot as plt
+from matplotlib import font_manager as fm
 
 # 添加src目錄到Python路徑
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
+from src.buyRule.breakthrough_resistance_line import (
+    check_resistance_line_breakthrough,
+    get_resistance_line_data,
+)
 
 def find_breakthrough_resistance_lines(high_point_dates, high_point_prices, resistance_results, recent_df):
     """
@@ -95,7 +100,7 @@ def find_breakthrough_resistance_lines(high_point_dates, high_point_prices, resi
 
 def simple_resistance_test(stock_id='2330', days=180):
     """
-    簡化的壓力線測試 - 只顯示最新一條壓力線
+    簡化的壓力線測試 - 顯示被突破的壓力線與水平壓力線
     """
     print(f"\n{'='*60}")
     print(f"簡化測試：{stock_id} 單一壓力線突破分析")
@@ -104,7 +109,6 @@ def simple_resistance_test(stock_id='2330', days=180):
     try:
         # 導入必要模塊
         from src.validate_buy_rule import load_stock_data
-        from src.buyRule.breakthrough_resistance_line import check_resistance_line_breakthrough
         from src.baseRule.turning_point_identification import identify_turning_points
         
         # 載入數據
@@ -131,10 +135,18 @@ def simple_resistance_test(stock_id='2330', days=180):
         # 執行突破分析
         print("🚀 執行壓力線突破分析...")
         resistance_results = check_resistance_line_breakthrough(recent_df, turning_points_df)
+        resistance_data = get_resistance_line_data(recent_df, turning_points_df)
         
         # 創建簡化圖表
         print("🎨 創建簡化圖表...")
-        create_simple_chart(stock_id, recent_df, turning_points_df, resistance_results, days)
+        create_simple_chart(
+            stock_id,
+            recent_df,
+            turning_points_df,
+            resistance_results,
+            resistance_data,
+            days
+        )
         
         return True
         
@@ -145,14 +157,28 @@ def simple_resistance_test(stock_id='2330', days=180):
         return False
 
 
-def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_results, days):
+def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_results, resistance_data, days):
     """
-    創建簡化的圖表 - 標記所有轉折高點和轉折低點，只畫被突破的壓力線
+    創建簡化的圖表 - 標記轉折點、繪製被突破的斜率壓力線與水平壓力線
     """
     try:
         # 設置中文字體
         plt.figure(figsize=(16, 10))
-        plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Arial Unicode MS', 'SimHei']
+        preferred_fonts = ['Microsoft JhengHei', 'Arial Unicode MS', 'SimHei']
+        selected_font = None
+        for font_name in preferred_fonts:
+            try:
+                fm.findfont(font_name, fallback_to_default=False)
+                selected_font = font_name
+                break
+            except ValueError:
+                continue
+        if selected_font:
+            plt.rcParams['font.sans-serif'] = [selected_font]
+            print(f"   使用中文字體: {selected_font}")
+        else:
+            plt.rcParams['font.sans-serif'] = plt.rcParamsDefault['font.sans-serif']
+            print("   使用預設字型（未找到預設的中文字體）")
         plt.rcParams['axes.unicode_minus'] = False
         
         # 主圖：K線圖
@@ -194,6 +220,16 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
                                    linewidth=1.2, alpha=0.9)
             
             plt.gca().add_patch(rect)
+        
+        # 建立日期查找表（字串日期 → 實際索引）
+        date_lookup = {idx.strftime('%Y-%m-%d'): idx for idx in recent_df.index}
+        breakthrough_dates = []
+        for _, row in resistance_results.iterrows():
+            if row.get('resistance_line_breakthrough_check') == 'O':
+                dt = date_lookup.get(row.get('date'))
+                if dt is not None:
+                    breakthrough_dates.append(dt)
+        breakthrough_dates = sorted(set(breakthrough_dates))
         
         # 找出所有轉折高點
         print("   識別轉折高點...")
@@ -239,7 +275,7 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
                        zorder=15, edgecolor='white', linewidth=1)
             print(f"   找到 {len(low_point_dates)} 個轉折低點")
         
-        # 繪製所有被突破的壓力線
+        # 繪製所有被突破的斜率壓力線
         print("   分析並繪製被突破的壓力線...")
         breakthrough_resistance_lines = find_breakthrough_resistance_lines(
             high_point_dates, high_point_prices, resistance_results, recent_df
@@ -283,6 +319,118 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
             print(f"   共找到 {len(breakthrough_resistance_lines)} 條被突破的壓力線")
         else:
             print("   未找到被突破的壓力線")
+        
+        # 繪製水平壓力線（使用最近一個轉折高點形成的水平壓力）
+        # 只保留最近即將突破或已突破的水平線，避免圖表雜訊
+        horizontal_lines = []
+        current_price = None
+        current_start = None
+        current_source_date = ''
+        prev_datetime = None
+        
+        for _, row in resistance_data.iterrows():
+            date_str = row.get('date')
+            horizontal_price = row.get('horizontal_resistance_price', np.nan)
+            current_datetime = date_lookup.get(date_str)
+            
+            if current_datetime is None:
+                continue
+            
+            if not pd.isna(horizontal_price):
+                if (current_price is None) or (not np.isclose(horizontal_price, current_price, rtol=1e-05, atol=1e-05)):
+                    if current_price is not None and prev_datetime is not None:
+                        horizontal_lines.append({
+                            'start': current_start,
+                            'end': prev_datetime,
+                            'price': current_price,
+                            'source_date': current_source_date
+                        })
+                    current_price = float(horizontal_price)
+                    current_start = current_datetime
+                    current_source_date = row.get('last_high_point_date', '')
+                prev_datetime = current_datetime
+            else:
+                if current_price is not None and prev_datetime is not None:
+                    horizontal_lines.append({
+                        'start': current_start,
+                        'end': prev_datetime,
+                        'price': current_price,
+                        'source_date': current_source_date
+                    })
+                current_price = None
+                current_start = None
+                current_source_date = ''
+                prev_datetime = None
+        
+        # 收尾：若最後一段仍有效，補上
+        if current_price is not None and prev_datetime is not None:
+            horizontal_lines.append({
+                'start': current_start,
+                'end': prev_datetime,
+                'price': current_price,
+                'source_date': current_source_date
+            })
+        
+        if horizontal_lines:
+            latest_date = recent_df.index[-1]
+            latest_close = recent_df.iloc[-1]['Close']
+            near_threshold = 0.01  # 1% 內視為接近突破（僅關注當日）
+            
+            filtered_lines = []
+            for line in horizontal_lines:
+                start = line['start']
+                end = line['end']
+                price = line['price']
+                
+                if start is None or end is None or pd.isna(price):
+                    continue
+                
+                has_breakthrough_today = (
+                    latest_date in breakthrough_dates and start <= latest_date <= end
+                )
+                near_break_today = False
+                
+                if (not has_breakthrough_today) and (end == latest_date) and price > 0:
+                    if latest_close < price:
+                        near_break_today = latest_close >= price * (1 - near_threshold)
+                    else:
+                        near_break_today = np.isclose(latest_close, price, rtol=0, atol=price * near_threshold)
+                
+                if has_breakthrough_today or near_break_today:
+                    line['has_breakthrough_today'] = has_breakthrough_today
+                    line['near_break_today'] = near_break_today
+                    filtered_lines.append(line)
+            
+            if filtered_lines:
+                print("   繪製符合條件的水平壓力線...")
+                for idx, line in enumerate(filtered_lines):
+                    start = line['start']
+                    end = line['end']
+                    price = line['price']
+                    source = line['source_date']
+                    label = '水平壓力線' if idx == 0 else ''
+                    
+                    plt.hlines(
+                        price,
+                        xmin=start,
+                        xmax=end,
+                        colors='darkorange',
+                        linestyles=':',
+                        linewidth=1.6,
+                        alpha=0.75,
+                        label=label,
+                        zorder=7
+                    )
+                    
+                    status = "今日已突破" if line.get('has_breakthrough_today') else "今日接近突破"
+                    if source:
+                        print(f"     {status}水平壓力線{idx+1}: 自 {source} 高點延伸，範圍 {start.strftime('%Y-%m-%d')} → {end.strftime('%Y-%m-%d')} @ {price:.2f}")
+                    else:
+                        print(f"     {status}水平壓力線{idx+1}: 範圍 {start.strftime('%Y-%m-%d')} → {end.strftime('%Y-%m-%d')} @ {price:.2f}")
+            else:
+                print("   未找到符合條件的水平壓力線")
+        else:
+            print("   未找到水平壓力線")
         
         # 繪製5日移動平均線
         print("   繪製5日移動平均線...")

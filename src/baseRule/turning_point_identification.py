@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-轉折點識別模塊 - 書本規格標準版
+轉折點識別模塊 - 書本規格標準版 v3.0
 
-依據書本規格實作轉折點識別，包含完整的位移規則。
+完全依據書本規格實作轉折點識別，包含完整的位移規則。
 
 書本規格6大規則：
 1. 以5日均線為依據
@@ -16,12 +16,14 @@
    (2) ⭐ 位移規則：在下個點產生前，如果右邊有更高或更低的點，該高低點要位移
    (3) 高低點交互選取
 
+⚠️ v3.0 改進：移除「連續2天確認」機制，改為單日穿越（符合書本原意）
+
 實作方式：採用「即時更新法」實現位移規則
 - 在群組內持續追蹤極值，發現更極端的值立即更新（位移）
 - 當穿越發生時才確認標記，自然符合位移規則
 
-版本：v2.0
-更新日期：2025-10-23
+版本：v3.0
+更新日期：2025-10-27
 """
 
 import pandas as pd
@@ -157,7 +159,7 @@ def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
     """
     檢測收盤價與MA5的穿越事件
     
-    使用連續2天確認機制降低假信號
+    ⚠️ v3.0: 改為單日穿越，移除連續2天確認機制
     
     Args:
         df: K線數據，需要包含 'Close' 和 'ma5' 欄位
@@ -170,22 +172,18 @@ def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
     # 計算收盤價與MA5的相對位置
     df_cross['close_above_ma5'] = df_cross['Close'] > df_cross['ma5']
     df_cross['prev_close_above_ma5'] = df_cross['close_above_ma5'].shift(1)
-    df_cross['prev2_close_above_ma5'] = df_cross['close_above_ma5'].shift(2)
     
-    # 向上穿越：連續2天確認
-    # 前2天在MA5下方或等於，前1天和當天都在MA5上方
+    # ⚠️ 單日穿越：只需要前後一天比較
+    # 向上穿越：前一天在MA5下方或等於，當天在MA5上方
     df_cross['cross_up'] = (
         (df_cross['close_above_ma5']) &
-        (df_cross['prev_close_above_ma5']) &
-        (~df_cross['prev2_close_above_ma5'].fillna(False))
+        (~df_cross['prev_close_above_ma5'].fillna(False))
     )
     
-    # 向下穿越：連續2天確認
-    # 前2天在MA5上方或等於，前1天和當天都在MA5下方
+    # 向下穿越：前一天在MA5上方或等於，當天在MA5下方
     df_cross['cross_down'] = (
         (~df_cross['close_above_ma5']) &
-        (~df_cross['prev_close_above_ma5'].fillna(True)) &
-        (df_cross['prev2_close_above_ma5'].fillna(True))
+        (df_cross['prev_close_above_ma5'].fillna(True))
     )
     
     return df_cross
@@ -193,10 +191,15 @@ def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
 
 def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFrame:
     """
-    識別股價的轉折高點和轉折低點（書本規格完整版）
+    識別股價的轉折高點和轉折低點（書本規格完整版 v3.0）
     
     完整實作書本規格的6大規則，特別是位移規則（規則6-2）
     採用「即時更新法」：在群組內持續追蹤極值，發現更極端值立即更新位置
+    
+    ⚠️ v3.0 重要改進：
+    - 移除「連續2天確認」機制
+    - 改為單日穿越（完全符合書本原意）
+    - 能捕捉到更多的轉折點
     
     Args:
         df: K線數據DataFrame，需要包含以下欄位：
@@ -213,7 +216,7 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
             - turning_low_point: 轉折低點標記（'O' 或 ''）
     
     實作說明：
-        1. 使用連續2天確認機制檢測穿越事件
+        1. 使用單日穿越檢測（符合書本規格）
         2. 使用TurningPointTracker持續追蹤群組內極值
         3. 當發現更極端的值時立即更新（實現位移規則）
         4. 穿越發生時確認標記（自動符合位移規則）
@@ -229,7 +232,7 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
     # 初始化轉折點追蹤器
     tracker = TurningPointTracker()
     
-    # 檢測穿越事件
+    # 檢測穿越事件（單日穿越）
     df_with_cross = detect_cross_events(df)
     
     # 記錄當前所處的群組類型
@@ -243,8 +246,8 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
         turning_high_point = ''
         turning_low_point = ''
         
-        # 邊界條件檢查
-        if i < 2 or pd.isna(row['ma5']):
+        # 邊界條件檢查（只需要前1天數據）
+        if i < 1 or pd.isna(row['ma5']):
             results.append({
                 'date': date,
                 'turning_high_point': turning_high_point,
@@ -327,25 +330,6 @@ def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFr
     # === 處理最後一個未完成的群組 ===
     # 如果數據結束時仍有未確認的群組，可選擇是否標記
     # 這裡採用保守策略：不標記未完成的群組
-    # 如需標記，可取消以下註釋：
-    """
-    if tracker.current_group_type == 'positive':
-        mark_result = tracker.confirm_current_extremum('high')
-        if mark_result:
-            mark_date, mark_type = mark_result
-            for j, result in enumerate(results):
-                if result['date'] == mark_date:
-                    results[j]['turning_high_point'] = 'O'
-                    break
-    elif tracker.current_group_type == 'negative':
-        mark_result = tracker.confirm_current_extremum('low')
-        if mark_result:
-            mark_date, mark_type = mark_result
-            for j, result in enumerate(results):
-                if result['date'] == mark_date:
-                    results[j]['turning_low_point'] = 'O'
-                    break
-    """
     
     return pd.DataFrame(results)
 
@@ -404,7 +388,6 @@ def verify_turning_points_quality(df: pd.DataFrame, turning_points_df: pd.DataFr
             issues.append(f"連續兩個{all_points[i][1]}點: {all_points[i][0]} 和 {all_points[i+1][0]}")
     
     # 檢查2：是否有遺漏的極值
-    # 這個檢查較複雜，需要檢測穿越事件並驗證每個群組是否有標記
     no_missing_extremum = True  # 簡化版本，完整檢查需要更多代碼
     
     return {
@@ -417,8 +400,9 @@ def verify_turning_points_quality(df: pd.DataFrame, turning_points_df: pd.DataFr
 
 
 if __name__ == "__main__":
-    print("轉折點識別模塊 - 書本規格標準版 v2.0")
+    print("轉折點識別模塊 - 書本規格標準版 v3.0")
     print("="*60)
+    print("⚠️ v3.0 改進：單日穿越，移除連續2天確認")
     print("完整實作書本規格的6大規則，特別是位移規則")
     print("使用方式：")
     print("  from turning_point_identification import identify_turning_points")

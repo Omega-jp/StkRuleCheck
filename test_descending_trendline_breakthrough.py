@@ -242,6 +242,7 @@ def create_descending_trendline_chart(stock_id, recent_df, wave_points_df,
         highs = recent_df['High']
         lows = recent_df['Low']
         closes = recent_df['Close']
+        ma5 = closes.rolling(window=5, min_periods=1).mean()
         
         # 繪製K線
         print("   繪製K線圖...")
@@ -262,6 +263,10 @@ def create_descending_trendline_chart(stock_id, recent_df, wave_points_df,
             
             plt.bar(date, body_height, bottom=body_bottom, 
                    color=color, alpha=0.7, width=0.8)
+
+        # Plot MA5 moving average line on the price chart
+        plt.plot(dates, ma5, color='dodgerblue', linewidth=1.6,
+                 label='MA5 (5日均線)', zorder=12)
         
         # 標記波段高點
         print("   標記波段點...")
@@ -473,10 +478,6 @@ def descending_trendline_test(stock_id='2330', days=360):
         buy_signals = check_breakthrough_descending_trendline(
             recent_df,
             trendlines,
-            min_breakthrough_pct=0.5,
-            volume_confirmation=True,
-            volume_multiplier=1.2,
-            volume_window=20
         )
         
         # 創建圖表

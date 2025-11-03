@@ -16,10 +16,6 @@ for idx, line in enumerate(trend.get('diagonal_lines', [])):
 signals = check_breakthrough_descending_trendline(
     df,
     trend,
-    min_breakthrough_pct=0.5,
-    volume_confirmation=True,
-    volume_multiplier=1.2,
-    volume_window=20
 )
 print('signal rows:', len(signals))
 print(signals[['date','breakthrough_check','breakthrough_type','signal_strength','breakthrough_pct']])

@@ -99,18 +99,16 @@ def diagnose_trendlines(stock_id='00631l', days=360):
         
         # 檢查買入信號
         print(f"\n5. 檢查買入信號...")
-        from src.buyRule.breakthrough_descending_trendline import check_breakthrough_descending_trendline_buy_rule
+        from src.buyRule.breakthrough_descending_trendline import check_descending_trendline
         
-        buy_signals = check_breakthrough_descending_trendline_buy_rule(
-            recent_df, turning_points_df,
-            min_days_long_term=180,
-            min_points_short_term=3,
-            volume_confirmation=True,
-            volume_multiplier=1.2,
-            min_breakthrough_percentage=0.5
+        buy_signals = check_descending_trendline(
+            recent_df,
+            turning_points_df=turning_points_df,
+            wave_points_df=wave_points_df,
         )
-        
-        signals = buy_signals[buy_signals['breakthrough_descending_trendline_buy'] == 'O']
+        signals = buy_signals[
+            buy_signals['descending_trendline_breakthrough_check'] == 'O'
+        ]
         print(f"✅ 買入信號: {len(signals)} 個")
         
         if len(signals) > 0:

@@ -6,6 +6,8 @@ __pycache__/
 .Python/
 venv/
 env/
+.venv/
+.venv.backup_*/
 
 # Data directories
 output/

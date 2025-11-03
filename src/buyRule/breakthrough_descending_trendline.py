@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
-下降趨勢線突破買入規則檢查模組 - 規格書版本
+下降趨勢線突破買進訊號檢查模組 - 日線版
 ================================================
 
-根據「突破下降趨勢線偵測規格書」實作突破判定邏輯：
-1. 收盤價突破判定（非盤中價）
-2. 最小突破幅度 ≥ 0.5%
-3. 可選的成交量確認（1.2倍放量）
+根據最新規格：
+1. 僅檢查 K 線收盤是否由下往上突破趨勢線（Cross Up）
+2. 不再設定突破幅度或量能放大等額外門檻，但仍保留資訊供統計使用
 
-作者：Claude
-日期：2025-01-21
+原稿：Claude
+更新：2025-11-01
 """
+
 
 from __future__ import annotations
 
@@ -23,160 +24,121 @@ from src.baseRule.wave_point_identification import check_wave_points
 from .long_term_descending_trendline import identify_descending_trendlines
 
 
+
 def check_breakthrough_descending_trendline(
     df: pd.DataFrame,
     trendlines: dict,
-    min_breakthrough_pct: float = 0.5,
-    volume_confirmation: bool = True,
-    volume_multiplier: float = 1.2,
-    volume_window: int = 20
+    **deprecated_kwargs,
 ) -> pd.DataFrame:
     """
-    檢查下降趨勢線突破買入信號
-    
-    根據規格書第三節「突破判定標準」：
-    
-    3.1 突破定義：
-    - 收盤價高於當日趨勢線對應價格
-    - 非盤中價：只看收盤價，不看盤中最高價
-    
-    3.2 突破幅度：
-    - 最小突破幅度：0.5%
-    - 計算公式：(收盤價 - 趨勢線價格) / 趨勢線價格 × 100% ≥ 0.5%
-    
-    3.3 成交量確認（可選）：
-    - 量能放大：當日成交量 ≥ 過去20日平均成交量 × 1.2倍
-    - 目的：過濾假突破
-    
-    Args:
-        df: K線數據，需包含 'Close' 和 'Volume'（若需量能確認）
-        trendlines: 趨勢線字典（由 identify_descending_trendlines 返回）
-        min_breakthrough_pct: 最小突破百分比（預設0.5%）
-        volume_confirmation: 是否需要成交量確認（預設True）
-        volume_multiplier: 成交量放大倍數（預設1.2倍）
-        volume_window: 均量計算窗口（預設20天）
-    
-    Returns:
-        DataFrame，每日一列記錄：
-        - date: 日期
-        - breakthrough_check: 'O' 表示突破，'' 表示未突破
-        - breakthrough_type: 突破類型（'diagonal' 或 'horizontal'）
-        - breakthrough_pct: 突破幅度（%）
-        - volume_ratio: 成交量比率
-        - trendline_price: 趨勢線價格
-        - close_price: 收盤價
-        - signal_strength: 信號強度（1-5分）
+    Detect breakouts where the daily close crosses a descending trendline from below.
+
+    The check now follows the simplified specification:
+        1. Require only a close cross-up event (previous close ≤ line, current close > line)
+        2. Do not gate on minimum breakout percentage or volume expansion
+        3. Still capture breakout percentage and volume ratio for reporting/statistics
+        4. Each trendline can generate at most one breakout signal
     """
-    
+    if deprecated_kwargs:
+        ignored_keys = ", ".join(sorted(deprecated_kwargs.keys()))
+        print(f"WARNING: check_breakthrough_descending_trendline ignores parameters: {ignored_keys}")
+
     if df is None or df.empty:
         return pd.DataFrame()
-    
-    if 'Close' not in df.columns:
-        raise ValueError("DataFrame 必須包含 'Close' 欄位")
-    
-    # 預計算成交量移動平均（如果需要）
+
+    if "Close" not in df.columns:
+        raise ValueError("DataFrame must contain 'Close' column")
+
     volume_ma = None
-    if volume_confirmation and 'Volume' in df.columns:
-        volume_ma = df['Volume'].rolling(window=volume_window, min_periods=5).mean()
-    
-    # 提取所有趨勢線
-    all_lines = trendlines.get('all_lines', [])
-    
+    if "Volume" in df.columns:
+        volume_ma = df["Volume"].rolling(window=20, min_periods=5).mean()
+
+    all_lines = trendlines.get("all_lines", [])
+
     if len(all_lines) == 0:
-        # 沒有趨勢線，返回空結果
         return _create_empty_results(df)
-    
+
     results = []
     used_breakthrough_lines = set()
-    
-    # 對每個日期進行檢查
+
     for i in range(len(df)):
         date = df.index[i]
-        close_price = df.iloc[i]['Close']
-        
-        # 預設值
-        breakthrough_check = ''
-        breakthrough_type = ''
+        close_price = df.iloc[i]["Close"]
+
+        breakthrough_check = ""
+        breakthrough_type = ""
         breakthrough_pct = 0.0
-        volume_ratio = 1.0
+        volume_ratio = 0.0
         trendline_price = 0.0
         signal_strength = 0
-        
-        # 計算當日成交量比率（如果需要）
-        if volume_confirmation and volume_ma is not None:
-            current_volume = df.iloc[i]['Volume']
+
+        if volume_ma is not None:
+            current_volume = df.iloc[i].get("Volume", 0.0)
             avg_volume = volume_ma.iloc[i]
-            
             if not pd.isna(avg_volume) and avg_volume > 0:
                 volume_ratio = current_volume / avg_volume
-            else:
-                volume_ratio = 0.0
-        
-        # 尋找有效突破
+
         valid_breakthroughs = []
-        
+
         for line in all_lines:
             line_key = _build_line_key(line)
             if line_key in used_breakthrough_lines:
                 continue
-            
-            # 計算當日趨勢線價格
-            current_line_price = line['intercept'] + line['slope'] * i
-            
-            # 檢查 1：收盤價突破趨勢線
+
+            current_line_price = line["intercept"] + line["slope"] * i
+
+            if i == 0:
+                continue
+
+            previous_line_price = line["intercept"] + line["slope"] * (i - 1)
+            previous_close_price = df.iloc[i - 1]["Close"]
+
+            if pd.isna(previous_close_price) or pd.isna(previous_line_price):
+                continue
+
+            if previous_close_price > previous_line_price:
+                continue
+
             if close_price <= current_line_price:
                 continue
-            
-            # 計算突破幅度
+
             pct = ((close_price - current_line_price) / current_line_price) * 100.0
-            
-            # 檢查 2：突破幅度 ≥ 最小要求
-            if pct < min_breakthrough_pct:
-                continue
-            
-            # 檢查 3：成交量確認（如果啟用）
-            if volume_confirmation:
-                if volume_ratio < volume_multiplier:
-                    continue
-            
-            # 有效突破！記錄資訊
+
             valid_breakthroughs.append({
-                'line': line,
-                'breakthrough_pct': pct,
-                'volume_ratio': volume_ratio,
-                'line_price': current_line_price
+                "line": line,
+                "breakthrough_pct": pct,
+                "volume_ratio": volume_ratio,
+                "line_price": current_line_price,
             })
-        
-        # 如果有多個有效突破，選擇最佳的一個
+
         if valid_breakthroughs:
             best_breakthrough = _select_best_breakthrough(valid_breakthroughs)
-            
+
             if best_breakthrough:
-                breakthrough_check = 'O'
-                line = best_breakthrough['line']
-                breakthrough_type = line['type']
-                breakthrough_pct = best_breakthrough['breakthrough_pct']
-                volume_ratio = best_breakthrough['volume_ratio']
-                trendline_price = best_breakthrough['line_price']
-                
-                # 計算信號強度（1-5分）
+                breakthrough_check = "O"
+                line = best_breakthrough["line"]
+                breakthrough_type = line["type"]
+                breakthrough_pct = best_breakthrough["breakthrough_pct"]
+                volume_ratio = best_breakthrough["volume_ratio"]
+                trendline_price = best_breakthrough["line_price"]
                 signal_strength = _calculate_signal_strength(
-                    line, breakthrough_pct, volume_ratio
+                    line,
+                    breakthrough_pct,
+                    volume_ratio,
                 )
                 used_breakthrough_lines.add(_build_line_key(line))
-        
-        # 記錄結果
+
         results.append({
-            'date': date.strftime('%Y-%m-%d') if isinstance(date, pd.Timestamp) else str(date),
-            'breakthrough_check': breakthrough_check,
-            'breakthrough_type': breakthrough_type,
-            'breakthrough_pct': round(breakthrough_pct, 2),
-            'volume_ratio': round(volume_ratio, 2),
-            'trendline_price': round(trendline_price, 2),
-            'close_price': round(close_price, 2),
-            'signal_strength': signal_strength
+            "date": date.strftime("%Y-%m-%d") if isinstance(date, pd.Timestamp) else str(date),
+            "breakthrough_check": breakthrough_check,
+            "breakthrough_type": breakthrough_type,
+            "breakthrough_pct": round(breakthrough_pct, 2),
+            "volume_ratio": round(volume_ratio, 2),
+            "trendline_price": round(trendline_price, 2),
+            "close_price": round(close_price, 2),
+            "signal_strength": signal_strength,
         })
-    
+
     return pd.DataFrame(results)
 
 

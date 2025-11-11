@@ -1,4 +1,4 @@
-import pandas as pd
+﻿import pandas as pd
 import os
 import importlib.util
 from src.validate_buy_rule import load_stock_data
@@ -53,6 +53,7 @@ def get_latest_result(df, rule_name, stock_id):
         turning_points_df = identify_turning_points(df)
         rule_df = check_func(df, turning_points_df)
     elif 'impulse_macd_buy_rule' == rule_name:
+        'td_sequential_buy_rule': 'TD 九轉買訊',
         # Impulse MACD 規則使用綜合買入檢查
         check_func = getattr(module, 'check_impulse_macd_combined_buy', None)
         if check_func is None:
@@ -95,6 +96,7 @@ def get_rule_display_name(rule_name):
         'breakthrough_resistance_line': '壓力線突破',
         'breakthrough_descending_trendline': '下降趨勢線突破',
         'impulse_macd_buy_rule': 'Impulse MACD 買入',
+        'td_sequential_buy_rule': 'TD 九轉買訊',
     }
     return name_mapping.get(rule_name, rule_name)
 
@@ -153,8 +155,8 @@ def main():
     summary_df = pd.DataFrame(summary_data)
     
     # 重新排列欄位順序，讓更重要的規則排在前面
-    column_order = ['StockID', 'StockName', '壓力線突破', '下降趨勢線突破', '三陽開泰', '四海游龍', 
-                   'MACD黃金交叉零軸上', 'MACD黃金交叉零軸上正柱', '鑽石劍', 'Impulse MACD 買入']
+    column_order = ['StockID', 'StockName', '���O�u��}', '�U���Ͷսu��}', '�T���}��', '�|�����s', 
+                   'MACD������e�s�b�W', 'MACD������e�s�b�W���W', '�p�ۼC', 'Impulse MACD �R�J', 'TD 九轉買訊']
     
     # 確保所有欄位都存在，如果不存在則添加
     for col in column_order:
@@ -183,5 +185,8 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
 
 

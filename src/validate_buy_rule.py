@@ -1,47 +1,163 @@
-﻿import pandas as pd
-import numpy as np
-import os
-import mplfinance as mpf
+﻿import os
+import re
+
 import matplotlib.pyplot as plt # Keep for font settings
+import mplfinance as mpf
+import numpy as np
+import pandas as pd
+
+from src.data_initial.calculate_impulse_macd import calculate_impulse_macd
+from src.data_initial.calculate_kd import calculate_kd
+from src.data_initial.calculate_macd import calculate_macd
+from src.data_initial.calculate_ma import calculate_ma
+from src.data_initial.kbar_downloader import process_kbars
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-def load_stock_data(stock_id, data_type='D'):
-    """載入股票數據"""
-    file_path = f'Data/kbar/{stock_id}_{data_type}.csv'
-    if not os.path.exists(file_path):
-        print(f"找不到文件: {file_path}")
-        return None
-    
+def _base_name(col: str) -> str:
+    """移除欄位尾端自動加的 .1/.2 後綴"""
+    return re.sub(r"(?:\.\d+)+$", "", col)
+
+
+def _dedup_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """以基礎名稱去重欄位，保留首次出現並扁平化名稱"""
+    keep_indices = []
+    new_cols = []
+    seen = set()
+    for idx, col in enumerate(df.columns):
+        base = _base_name(col)
+        if base in seen:
+            continue
+        seen.add(base)
+        keep_indices.append(idx)
+        new_cols.append(base)
+    trimmed = df.iloc[:, keep_indices].copy()
+    trimmed.columns = new_cols
+    return trimmed
+
+
+def _append_indicators_inline(df: pd.DataFrame) -> pd.DataFrame:
+    """缺少指標時就地計算 KD/MACD/MA/Impulse MACD。"""
+    if df.empty:
+        return df
+
+    base_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in base_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=base_cols)
+    if df.empty:
+        return df
+
+    # 如果 ma5 已存在，視為已附加過主要指標，直接返回
+    if 'ma5' in df.columns:
+        return df
+
+    kd_df = calculate_kd(df.copy())
+    macd_df = calculate_macd(df.copy())
+    ma_df = calculate_ma(df.copy())
+    impulse_df = calculate_impulse_macd(df.copy())
+
+    for col in ['RSV', '%K', '%D']:
+        if col in kd_df.columns:
+            kd_df[col] = kd_df[col].round(2)
+    for col in ['MACD', 'Signal', 'Histogram']:
+        if col in macd_df.columns:
+            macd_df[col] = macd_df[col].round(2)
+    for col in ma_df.columns:
+        ma_df[col] = ma_df[col].round(2)
+    for col in impulse_df.columns:
+        impulse_df[col] = impulse_df[col].round(2)
+
+    merged = pd.concat([df, kd_df, macd_df, ma_df, impulse_df], axis=1)
+    # 去除重複欄位，保留首個出現的基礎欄位
+    merged = _dedup_columns(merged)
+    return merged
+
+
+def _rebuild_from_raw(stock_id: str):
+    """若 D/W 不存在且有 Raw，從 Raw 重建後回傳 (daily, weekly)。"""
+    raw_path = f'Data/kbar/{stock_id}_Raw.csv'
+    if not os.path.exists(raw_path):
+        return None, None
+
     try:
-        df = pd.read_csv(file_path, index_col='ts', parse_dates=True)
-        
-        # 檢查並統一欄位名稱
+        raw_df = pd.read_csv(raw_path, index_col='ts', parse_dates=True)
         column_mapping = {
             '開盤價': 'Open',
-            '最高價': 'High', 
+            '最高價': 'High',
             '最低價': 'Low',
             '收盤價': 'Close',
-            '成交量': 'Volume'
+            '成交量': 'Volume',
         }
-        
-        # 如果是中文欄位名稱，轉換為英文
-        if '收盤價' in df.columns:
-            df.rename(columns=column_mapping, inplace=True)
-        
-        # 確保必要欄位存在
-        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"缺少必要欄位: {missing_cols}")
-            print(f"現有欄位: {list(df.columns)}")
+        if '收盤價' in raw_df.columns:
+            raw_df.rename(columns=column_mapping, inplace=True)
+        raw_df = raw_df[['Open', 'High', 'Low', 'Close', 'Volume']]
+    except Exception as exc:
+        print(f"  無法從 Raw 讀取 {stock_id}: {exc}")
+        return None, None
+
+    daily_k, weekly_k = process_kbars(raw_df)
+    if daily_k is not None:
+        daily_k.index.name = 'ts'
+        daily_path = f'Data/kbar/{stock_id}_D.csv'
+        daily_k.to_csv(daily_path)
+        print(f"  已重建日線: {daily_path}")
+    if weekly_k is not None:
+        weekly_k.index.name = 'ts'
+        weekly_path = f'Data/kbar/{stock_id}_W.csv'
+        weekly_k.to_csv(weekly_path)
+        print(f"  已重建週線: {weekly_path}")
+    return daily_k, weekly_k
+
+
+def load_stock_data(stock_id, data_type='D'):
+    """載入股票數據；若 D/W 缺少且有 Raw，會先自動重建。"""
+    file_path = f'Data/kbar/{stock_id}_{data_type}.csv'
+    df = None
+
+    if not os.path.exists(file_path):
+        print(f"找不到文件: {file_path}")
+        daily_k, weekly_k = _rebuild_from_raw(stock_id)
+        if data_type == 'D':
+            df = daily_k
+        elif data_type == 'W':
+            df = weekly_k
+        if df is None:
             return None
-            
-        return df
-    except Exception as e:
-        print(f"載入數據時發生錯誤: {e}")
+    else:
+        try:
+            df = pd.read_csv(file_path, index_col='ts', parse_dates=True)
+        except Exception as e:
+            print(f"載入數據時發生錯誤: {e}")
+            return None
+
+    # 去除重複的尾碼欄位，保留首個並扁平化名稱
+    df = _dedup_columns(df)
+
+    # 檢查並統一欄位名稱
+    column_mapping = {
+        '開盤價': 'Open',
+        '最高價': 'High',
+        '最低價': 'Low',
+        '收盤價': 'Close',
+        '成交量': 'Volume'
+    }
+
+    if '收盤價' in df.columns:
+        df.rename(columns=column_mapping, inplace=True)
+
+    # 確保必要欄位存在
+    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        print(f"缺少必要欄位: {missing_cols}")
+        print(f"現有欄位: {list(df.columns)}")
         return None
+
+    df = _append_indicators_inline(df)
+    return df
 
 def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=None, turning_points_df=None, wave_points_df=None):
     """繪製K線圖"""
@@ -230,7 +346,9 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
             return None
 
         dates, values = zip(*[(date, price) for _, date, price in filtered_points])
-        return pd.Series(values, index=dates)
+        series = pd.Series(values, index=dates, dtype=float)
+        # 需與 recent_df 長度一致,避免 mpf.plot 維度錯誤
+        return series.reindex(recent_df.index)
 
     turning_sequence_series = _build_sequence_series(turning_points_df, 'turning_high_point', 'turning_low_point')
     if turning_sequence_series is not None:
@@ -240,7 +358,7 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
                 type='line',
                 color='dimgray',
                 linestyle='--',
-                linewidth=1.0,
+                width=1.0,
                 alpha=0.7
             )
         )
@@ -271,7 +389,7 @@ def plot_candlestick_chart(df, stock_id, buy_signals_dict=None, sell_signals=Non
                 type='line',
                 color='darkred',
                 linestyle='-',
-                linewidth=1.2,
+                width=1.2,
                 alpha=0.85
             )
         )

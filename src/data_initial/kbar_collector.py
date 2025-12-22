@@ -1,14 +1,17 @@
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import pandas as pd
 from src.data_initial.kbar_downloader import get_stock_kbars, process_kbars
 
+MARKET_OPEN_HOUR = 9
+MARKET_OPEN_MINUTE = 0
 MARKET_CLOSE_HOUR = 13
 MARKET_CLOSE_MINUTE = 30
+POST_CLOSE_UPDATE_TIME = time(13, 40)
 CLOSING_BAR_TOLERANCE_MINUTES = 5
 FETCH_LOG_FILENAME = "_fetch_log.json"
-FETCH_COOLDOWN_MINUTES = 1
+FETCH_COOLDOWN_MINUTES = 5
 
 
 def has_latest_closing_bar(raw_file_path, trading_date, expected_close_time):
@@ -67,6 +70,34 @@ def save_fetch_log(log_path, entries):
     except Exception as e:
         print(f"寫入抓取紀錄失敗：{e}")
 
+
+def _was_file_updated_after_cutoff(file_path, data_date):
+    """
+    若 daily CSV 在指定交易日 13:40 後仍有寫入，視為該交易日資料完整，
+    隔天開盤前即可跳過再抓取。
+    """
+    if (not file_path) or (not os.path.exists(file_path)) or data_date is None:
+        return False
+    try:
+        mtime = datetime.fromtimestamp(os.path.getmtime(file_path))
+    except OSError:
+        return False
+    cutoff_dt = datetime.combine(data_date, POST_CLOSE_UPDATE_TIME)
+    return mtime >= cutoff_dt
+
+
+def _get_last_raw_timestamp(raw_file_path):
+    """讀取 raw CSV 最後一筆時間戳，供判斷是否已含昨/今收盤資料。"""
+    if not os.path.exists(raw_file_path):
+        return None
+    try:
+        raw_df = pd.read_csv(raw_file_path, index_col='ts', parse_dates=True)
+    except Exception:
+        return None
+    if raw_df.empty:
+        return None
+    return raw_df.index.max()
+
 def collect_and_save_kbars():
     """
     根據 'config/StkList.cfg' 清單收集日K和周K資料，並存成 .csv 檔。
@@ -113,16 +144,54 @@ def collect_and_save_kbars():
         
         start_date = None
         end_date = datetime.now()
+        market_open_dt = end_date.replace(hour=MARKET_OPEN_HOUR,
+                                          minute=MARKET_OPEN_MINUTE,
+                                          second=0,
+                                          microsecond=0)
         market_close_dt = end_date.replace(hour=MARKET_CLOSE_HOUR,
                                            minute=MARKET_CLOSE_MINUTE,
                                            second=0,
                                            microsecond=0)
+        market_close_time = market_close_dt.time()
         before_close = end_date <= market_close_dt
+        before_open = end_date < market_open_dt
         today = end_date.date()
+        prev_trading_day = today - timedelta(days=1)
+        while prev_trading_day.weekday() >= 5:
+            prev_trading_day -= timedelta(days=1)
         need_download = True
         last_fetch_time = fetch_log.get(stock_id)
         if before_close and last_fetch_time and (end_date - last_fetch_time) < fetch_cooldown:
-            print(f"股票 {stock_id} 於 {last_fetch_time.strftime('%H:%M:%S')} 已抓取，間隔未滿 1 分鐘，暫不重複請求")
+            print(
+                f"股票 {stock_id} 於 {last_fetch_time.strftime('%H:%M:%S')} 已抓取，"
+                f"間隔未滿 {FETCH_COOLDOWN_MINUTES} 分鐘，暫不重複請求"
+            )
+            continue
+
+        last_raw_ts = _get_last_raw_timestamp(raw_file)
+        raw_has_prev_close = (
+            last_raw_ts
+            and last_raw_ts.date() >= prev_trading_day
+            and last_raw_ts.time() >= market_close_time
+        )
+        raw_has_today_close = (
+            last_raw_ts
+            and last_raw_ts.date() == today
+            and last_raw_ts.time() >= market_close_time
+        )
+
+        if before_open and raw_has_prev_close:
+            print(
+                f"盤前時段，{stock_id} Raw 檔最新一筆為 "
+                f"{last_raw_ts.strftime('%Y-%m-%d %H:%M')} (昨收盤)，暫不更新"
+            )
+            continue
+
+        if (not before_close) and raw_has_today_close:
+            print(
+                f"盤後時段，{stock_id} Raw 檔已出現今日 "
+                f"{market_close_time.strftime('%H:%M')} 資料，略過更新"
+            )
             continue
 
         if os.path.exists(daily_file):
@@ -136,6 +205,9 @@ def collect_and_save_kbars():
                 else:
                     last_date_date = last_date.date()
                     days_diff = (today - last_date_date).days
+                    file_updated_after_cutoff = _was_file_updated_after_cutoff(
+                        daily_file, last_date_date
+                    )
 
                     if days_diff < 0:
                         print(f"股票 {stock_id} 的數據已是最新")
@@ -154,15 +226,39 @@ def collect_and_save_kbars():
                                 start_date = last_date + timedelta(days=1)
                     else:
                         if last_date_date < today:
-                            need_download = True
-                            if days_diff > DOWNLOAD_DAYS:
-                                print(f"股票 {stock_id} 的數據已過期，需要重新下載")
-                                start_date = None
+                            if before_open:
+                                if last_date_date >= prev_trading_day:
+                                    if file_updated_after_cutoff:
+                                        mtime = datetime.fromtimestamp(os.path.getmtime(daily_file))
+                                        print(
+                                            f"盤前時段，股票 {stock_id} 已於 "
+                                            f"{mtime.strftime('%Y-%m-%d %H:%M')} 更新 (>=13:40)，暫不重複下載"
+                                        )
+                                        need_download = False
+                                    else:
+                                        print(
+                                            f"盤前時段，股票 {stock_id} 最近日期為 "
+                                            f"{last_date_date}，尚未於 13:40 後更新，暫緩更新"
+                                        )
+                                        need_download = False
+                                else:
+                                    print(
+                                        f"盤前時段，但股票 {stock_id} 缺少最近一個交易日資料，暫緩至開盤後處理"
+                                    )
+                                    need_download = False
                             else:
-                                print(f"股票 {stock_id} 的數據需要更新，從 {last_date.date() + timedelta(days=1)} 更新到今天")
-                                start_date = last_date + timedelta(days=1)
+                                need_download = True
+                                if days_diff > DOWNLOAD_DAYS:
+                                    print(f"股票 {stock_id} 的數據已過期，需要重新下載")
+                                    start_date = None
+                                else:
+                                    print(
+                                        f"股票 {stock_id} 的數據需要更新，從 "
+                                        f"{last_date.date() + timedelta(days=1)} 更新到今天"
+                                    )
+                                    start_date = last_date + timedelta(days=1)
                         else:
-                            if has_latest_closing_bar(raw_file, today, market_close_dt.time()):
+                            if has_latest_closing_bar(raw_file, today, market_close_time):
                                 print(f"股票 {stock_id} 今日資料已包含收盤最後一筆，略過更新")
                                 need_download = False
                             else:
@@ -182,12 +278,13 @@ def collect_and_save_kbars():
             fetch_log[stock_id] = end_date
             save_fetch_log(fetch_log_path, fetch_log)
             df = get_stock_kbars(stock_id, start_date=start_date, end_date=end_date)
-            if df is not None:
+            if df is not None and not df.empty:
                 if start_date is not None:  # 如果是更新數據
                     # 合併新舊數據
                     try:
                         old_data = pd.read_csv(raw_file, index_col='ts', parse_dates=True)
-                        df = pd.concat([old_data[old_data.index < start_date], df])
+                        if not old_data.empty:
+                            df = pd.concat([old_data[old_data.index < start_date], df])
                     except Exception as e:
                         print(f"合併數據時發生錯誤：{e}，將使用新下載的數據")
 

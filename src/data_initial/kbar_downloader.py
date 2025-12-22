@@ -74,8 +74,15 @@ def process_kbars(df):
         High/Low 為該週所有交易日中的最大/最小值，
         Volume 為該週成交量的總和。
     """
-    if df is None:
+    if df is None or df.empty:
         return None, None
+
+    if not isinstance(df.index, (pd.DatetimeIndex, pd.PeriodIndex, pd.TimedeltaIndex)):
+        try:
+            df = df.copy()
+            df.index = pd.to_datetime(df.index, errors='coerce')
+        except Exception:
+            return None, None
     
     # 生成日K線：由於部分日期無交易資料，會產生缺失
     # 生成日K線：由於部分日期無交易資料，會產生缺失

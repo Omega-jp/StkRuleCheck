@@ -53,53 +53,64 @@ def identify_bottom_fractals(
             "bottom_fractal": "",
             "fractal_low": 0.0,
             "fractal_low_date": "",
+            "fractal_left_date": "",
+            "fractal_right_date": "",
         }
         for idx in data.index
     ]
 
     for i, (idx, row) in enumerate(data.iterrows()):
-        p = i - right
-        if p < 0 or p - left < 0:
-            continue
-
-        low_p = data.iloc[p]["Low"]
-        has_left = left == 0 or len(data.iloc[p - left : p]) == left
-        has_right = right == 0 or len(data.iloc[p + 1 : p + right + 1]) == right
-        if not (has_left and has_right):
-            continue
-
-        min_left = data.iloc[p - left : p]["Low"].min() if left > 0 else low_p
-        min_right = data.iloc[p + 1 : p + right + 1]["Low"].min() if right > 0 else low_p
         tol_factor = 1 + tol / 100.0
-        confirm_close = data.iloc[i]["Close"]
-        left_high_ref = data.iloc[p - left]["High"] if left > 0 else data.iloc[p]["High"]
-        # 中間區間（不含右K）不得突破左K高點（含開盤/最高）
-        inter_high_ok = True
-        if right > 0 and left > 0:
-            inter_slice = data.iloc[p - left + 1 : p + right]  # 開區間，排除最左與最右
-            if not inter_slice.empty:
-                inter_high_ok = (
-                    inter_slice["High"].max() <= left_high_ref
-                    and inter_slice["Open"].max() <= left_high_ref
-                )
-        elif right > 0:
-            inter_slice = data.iloc[p + 1 : p + right]
-            if not inter_slice.empty:
-                inter_high_ok = (
-                    inter_slice["High"].max() <= left_high_ref
-                    and inter_slice["Open"].max() <= left_high_ref
-                )
+        found = False
+        matched_low_p = None
+        matched_p = None
+        # 可變窗長：視窗總長 3~5，最低點落在左右兩根之間即可
+        max_window = min(left + right + 1, 5)
+        min_window = 3
+        for window_len in range(min_window, max_window + 1):
+            left_idx = i - window_len + 1
+            if left_idx < 0:
+                continue
 
-        is_fractal = (
-            low_p <= min_left * tol_factor
-            and low_p <= min_right * tol_factor
-            and (confirm_close > left_high_ref)
-            and inter_high_ok
-        )
-        if is_fractal:
+            left_high_ref = data.iloc[left_idx]["High"]
+            left_low_ref = data.iloc[left_idx]["Low"]
+            right_low_ref = data.iloc[i]["Low"]
+            confirm_close = data.iloc[i]["Close"]
+
+            inter_slice = data.iloc[left_idx + 1 : i]
+            if inter_slice.empty:
+                continue
+
+            low_p = inter_slice["Low"].min()
+            matched_p = inter_slice["Low"].idxmin()
+
+            # 中間區間（不含左右端）不得突破左K高點（含開盤/最高）
+            inter_high_ok = (
+                inter_slice["High"].max() <= left_high_ref
+                and inter_slice["Open"].max() <= left_high_ref
+            )
+            inside_mask = (inter_slice["High"] <= left_high_ref) & (inter_slice["Low"] >= left_low_ref)
+            inter_inside_ok = inside_mask.sum() <= 3
+
+            is_fractal = (
+                low_p <= left_low_ref * tol_factor
+                and low_p <= right_low_ref * tol_factor
+                and (confirm_close > left_high_ref)
+                and inter_high_ok
+                and inter_inside_ok
+            )
+            if is_fractal:
+                found = True
+                matched_low_p = low_p
+                matched_p = data.index.get_loc(matched_p)
+                break
+
+        if found:
             # 標記在「成立那一天」（右窗口的末日），但記錄實際分型低點資訊
             results[i]["bottom_fractal"] = "O"
-            results[i]["fractal_low"] = float(low_p)
-            results[i]["fractal_low_date"] = data.index[p].strftime("%Y-%m-%d")
+            results[i]["fractal_low"] = float(matched_low_p)
+            results[i]["fractal_low_date"] = data.index[matched_p].strftime("%Y-%m-%d")
+            results[i]["fractal_left_date"] = data.index[left_idx].strftime("%Y-%m-%d")
+            results[i]["fractal_right_date"] = data.index[i].strftime("%Y-%m-%d")
 
     return pd.DataFrame(results)

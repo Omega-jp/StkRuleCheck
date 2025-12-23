@@ -168,25 +168,35 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
         start_points = []
         end_points = []
         for row in bf_hits.itertuples():
-            center_date = pd.to_datetime(row.fractal_low_date)
-            if center_date not in pos_map:
-                continue
-            # 以中心位置推算起點/終點
-            center_loc = df.index.get_loc(center_date)
-            if isinstance(center_loc, slice):
-                center_loc = center_loc.start
-            start_idx = center_loc - left
-            end_idx = center_loc + right
-            if start_idx >= 0:
-                start_points.append((start_idx, float(df.iloc[start_idx]["Low"])))
-            if end_idx < len(df):
-                end_points.append((end_idx, float(df.iloc[end_idx]["Low"])))
+            if hasattr(row, "fractal_left_date") and hasattr(row, "fractal_right_date"):
+                left_date = pd.to_datetime(row.fractal_left_date)
+                right_date = pd.to_datetime(row.fractal_right_date)
+                if left_date in pos_map:
+                    start_idx = pos_map[left_date]
+                    start_points.append((start_idx, float(df.iloc[start_idx]["Low"])))
+                if right_date in pos_map:
+                    end_idx = pos_map[right_date]
+                    end_points.append((end_idx, float(df.iloc[end_idx]["Low"])))
+            else:
+                center_date = pd.to_datetime(row.fractal_low_date)
+                if center_date not in pos_map:
+                    continue
+                # 以中心位置推算起點/終點
+                center_loc = df.index.get_loc(center_date)
+                if isinstance(center_loc, slice):
+                    center_loc = center_loc.start
+                start_idx = center_loc - left
+                end_idx = center_loc + right
+                if start_idx >= 0:
+                    start_points.append((start_idx, float(df.iloc[start_idx]["Low"])))
+                if end_idx < len(df):
+                    end_points.append((end_idx, float(df.iloc[end_idx]["Low"])))
 
         if start_points:
             sx, sy = zip(*start_points)
             ax.scatter(
                 sx,
-                np.array(sy) * 0.99,
+                np.array(sy) * 0.975,
                 marker="^",
                 color="#7f8c8d",
                 alpha=0.85,
@@ -198,7 +208,7 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
             ex, ey = zip(*end_points)
             ax.scatter(
                 ex,
-                np.array(ey) * 0.99,
+                np.array(ey) * 0.975,
                 marker="^",
                 facecolors="none",
                 edgecolors="#7f8c8d",

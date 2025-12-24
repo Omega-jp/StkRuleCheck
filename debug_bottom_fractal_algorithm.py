@@ -109,7 +109,7 @@ def summarize(turning: pd.DataFrame, fractals: pd.DataFrame, signals: pd.DataFra
 
 def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals: pd.DataFrame, signals: pd.DataFrame, left: int, right: int):
     _ensure_plot_fonts()
-    fig, ax = plt.subplots(figsize=(14, 6))
+    fig, ax = plt.subplots(figsize=(18, 8), dpi=200)
     ax.set_facecolor("#f9fbff")
 
     # 使用序列位置代替日期軸，避免非交易日的空白
@@ -117,14 +117,19 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
     pos_map = {d: i for i, d in enumerate(df.index)}
 
     # 繪製簡易 K 線（引線置中於 K 棒）
-    width = 0.45
+    width = 0.6
     color_up = "#e74c3c"   # 紅
     color_down = "#2ecc71" # 綠
     for i, (d, row) in enumerate(df.iterrows()):
         open_p, high_p, low_p, close_p = row[["Open", "High", "Low", "Close"]]
         color = color_up if close_p >= open_p else color_down
-        ax.vlines(xs[i], low_p, high_p, color=color, linewidth=1.2, alpha=0.9, zorder=2)
+        body_top = max(open_p, close_p)
         body_bottom = min(open_p, close_p)
+        # 影線只畫在實體外側，不貫穿實體
+        if high_p > body_top:
+            ax.vlines(xs[i], body_top, high_p, color="#222222", linewidth=0.2, alpha=0.95, zorder=4)
+        if low_p < body_bottom:
+            ax.vlines(xs[i], low_p, body_bottom, color="#222222", linewidth=0.2, alpha=0.95, zorder=4)
         body_height = abs(close_p - open_p)
         rect = plt.Rectangle(
             (xs[i] - width / 2, body_bottom),
@@ -134,7 +139,7 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
             edgecolor="#ffffff",
             linewidth=0.5,
             alpha=0.9,
-            zorder=3,
+            zorder=2,
         )
         ax.add_patch(rect)
 
@@ -260,7 +265,7 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
     os.makedirs(out_dir, exist_ok=True)
     chart_path = os.path.join(out_dir, f"{stock_id}_bottom_fractal_debug.png")
     plt.tight_layout()
-    plt.savefig(chart_path)
+    plt.savefig(chart_path, dpi=200)
     plt.close(fig)
     print(f"🖼️ 圖表已保存: {chart_path}")
 

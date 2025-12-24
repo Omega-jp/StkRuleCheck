@@ -116,27 +116,27 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
     xs = np.arange(len(df))
     pos_map = {d: i for i, d in enumerate(df.index)}
 
-    # 繪製簡易 K 線
+    # 繪製簡易 K 線（引線置中於 K 棒）
     width = 0.45
     color_up = "#e74c3c"   # 紅
     color_down = "#2ecc71" # 綠
     for i, (d, row) in enumerate(df.iterrows()):
         open_p, high_p, low_p, close_p = row[["Open", "High", "Low", "Close"]]
         color = color_up if close_p >= open_p else color_down
-        ax.plot([xs[i], xs[i]], [low_p, high_p], color=color, linewidth=1.2, alpha=0.9)
+        ax.vlines(xs[i], low_p, high_p, color=color, linewidth=1.2, alpha=0.9, zorder=2)
         body_bottom = min(open_p, close_p)
         body_height = abs(close_p - open_p)
-        ax.bar(
-            xs[i],
+        rect = plt.Rectangle(
+            (xs[i] - width / 2, body_bottom),
+            width,
             body_height if body_height > 0 else 0.2,
-            bottom=body_bottom,
-            color=color,
-            width=width,
+            facecolor=color,
             edgecolor="#ffffff",
             linewidth=0.5,
-            align="center",
             alpha=0.9,
+            zorder=3,
         )
+        ax.add_patch(rect)
 
     # 對齊索引
     turning_idx = turning.copy()
@@ -193,10 +193,24 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
                     end_points.append((end_idx, float(df.iloc[end_idx]["Low"])))
 
         if start_points:
-            sx, sy = zip(*start_points)
+            end_xs = {x for x, _ in end_points} if end_points else set()
+            start_points_sorted = sorted(start_points, key=lambda p: (p[0], p[1]))
+            sx, sy = [], []
+            start_seen = {}
+            for x, y in start_points_sorted:
+                offset = start_seen.get(x, 0)
+                start_seen[x] = offset + 1
+                sx.append(x)
+                base = 0.975
+                step = 0.02
+                extra = 1 if x in end_xs else 0
+                if offset == 0 and extra == 0:
+                    sy.append(y * base)
+                else:
+                    sy.append(y * (base - step * (offset + extra)))
             ax.scatter(
                 sx,
-                np.array(sy) * 0.975,
+                sy,
                 marker="^",
                 color="#7f8c8d",
                 alpha=0.85,
@@ -205,10 +219,18 @@ def plot_chart(stock_id: str, df: pd.DataFrame, turning: pd.DataFrame, fractals:
                 zorder=5,
             )
         if end_points:
-            ex, ey = zip(*end_points)
+            end_points_sorted = sorted(end_points, key=lambda p: (p[0], p[1]))
+            ex, ey = [], []
+            end_seen = {}
+            for x, y in end_points_sorted:
+                offset = end_seen.get(x, 0)
+                end_seen[x] = offset + 1
+                ex.append(x)
+                base = 0.975
+                ey.append(y * base)
             ax.scatter(
                 ex,
-                np.array(ey) * 0.975,
+                ey,
                 marker="^",
                 facecolors="none",
                 edgecolors="#7f8c8d",

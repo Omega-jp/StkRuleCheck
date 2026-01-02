@@ -174,7 +174,13 @@ def run_real_data(stock_id: str, days: int, left: int, right: int, tol: float):
         df["ma5"] = df["Close"].rolling(window=5, min_periods=1).mean()
 
     turning_points_df = identify_turning_points(df)
-    bottom_fractal_df = identify_bottom_fractals(df, left=left, right=right, tol=tol)
+    bottom_fractal_df = identify_bottom_fractals(
+        df, 
+        left=left, 
+        right=right, 
+        tol=tol,
+        turning_points_df=turning_points_df  # 傳入轉折點以啟用上下文過濾
+    )
     result = check_bottom_fractal_higher_low(
         df,
         turning_points_df=turning_points_df,
@@ -200,19 +206,23 @@ def run_real_data(stock_id: str, days: int, left: int, right: int, tol: float):
         tp = tp.set_index("date")
     tp = tp.reindex(df.index)
 
-    # 繪圖：K 線 + 轉折點 + 底底高買訊
+    # 繪圖：K 線 + 轉折點 + 底底高買訊（根據 K線繪製規格書）
     try:
         _ensure_plot_fonts()
-        fig, ax = plt.subplots(figsize=(12, 6))
+        # 增大圖表尺寸和 DPI 以提高可讀性
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=120)
+        ax.set_facecolor("#f9fbff")
 
-        # 畫簡易 K 線
+        # 畫簡易 K 線（紅色上漲，綠色下跌）
         width = 0.6
-        color_up = "red"
-        color_down = "green"
+        color_up = "#e74c3c"   # 紅色
+        color_down = "#2ecc71" # 綠色
         for d, row in df.iterrows():
             open_p, high_p, low_p, close_p = row[["Open", "High", "Low", "Close"]]
             color = color_up if close_p >= open_p else color_down
-            ax.plot([d, d], [low_p, high_p], color=color, linewidth=1)
+            # 繪製影線（上下影線）
+            ax.plot([d, d], [low_p, high_p], color="#222222", linewidth=0.8, alpha=0.7, zorder=2)
+            # 繪製 K 線實體
             body_bottom = min(open_p, close_p)
             body_height = abs(close_p - open_p)
             ax.bar(
@@ -222,78 +232,137 @@ def run_real_data(stock_id: str, days: int, left: int, right: int, tol: float):
                 color=color,
                 width=width,
                 align="center",
-                alpha=0.8,
+                alpha=0.9,
+                edgecolor="#ffffff",
+                linewidth=0.5,
+                zorder=3,
             )
 
-        # 標記轉折高低點
+        # 繪製 MA5 線（藍色）- 根據規格書要求
+        if "ma5" in df.columns:
+            ax.plot(df.index, df["ma5"], label="MA5", color="#4a90e2", linewidth=2, alpha=0.9, zorder=4)
+
+        # 標記轉折高低點（根據規格書：紅色向下箭頭表示高點，綠色向上箭頭表示低點）
         highs = tp[tp["turning_high_point"] == "O"]
         lows = tp[tp["turning_low_point"] == "O"]
         if not highs.empty:
             ax.scatter(
                 highs.index,
-                df.loc[highs.index, "High"] * 1.01,  # 稍微上移避免遮擋
+                df.loc[highs.index, "High"] * 1.02,  # 稍微上移避免遮擋
                 marker="v",
-                color="orange",
-                s=80,
+                color="#e74c3c",  # 紅色向下箭頭
+                s=120,
                 label="轉折高",
                 zorder=5,
+                edgecolors="#ffffff",
+                linewidths=0.5,
             )
         if not lows.empty:
             ax.scatter(
                 lows.index,
-                df.loc[lows.index, "Low"] * 0.99,  # 稍微下移避免遮擋
+                df.loc[lows.index, "Low"] * 0.98,  # 稍微下移避免遮擋
                 marker="^",
-                color="blue",
-                s=80,
+                color="#2ecc71",  # 綠色向上箭頭
+                s=120,
                 label="轉折低",
                 zorder=5,
+                edgecolors="#ffffff",
+                linewidths=0.5,
             )
 
-        # 標記所有底分型（淡色）
+        # 繪製轉折點連線（轉折波）
+        # 收集所有轉折點並按時間排序
+        turning_points = []
+        for idx in highs.index:
+            turning_points.append((idx, df.loc[idx, "High"], "high"))
+        for idx in lows.index:
+            turning_points.append((idx, df.loc[idx, "Low"], "low"))
+        
+        # 按日期排序
+        turning_points.sort(key=lambda x: x[0])
+        
+        # 繪製連線
+        if len(turning_points) >= 2:
+            dates = [tp[0] for tp in turning_points]
+            prices = [tp[1] for tp in turning_points]
+            ax.plot(
+                dates,
+                prices,
+                color="#e67e22",  # 橙色
+                linewidth=2,
+                linestyle="--",
+                alpha=0.7,
+                label="轉折波",
+                zorder=4,
+            )
+
+
+        # 標記所有底分型（淡色圓圈）
         bf_hits = bottom_fractal_df[bottom_fractal_df["bottom_fractal"] == "O"]
         if not bf_hits.empty:
             bf_hits = bf_hits.copy()
             bf_hits["date"] = pd.to_datetime(bf_hits["date"])
             bf_hits = bf_hits.set_index("date")
             bf_hits = bf_hits.reindex(df.index)
-            ax.scatter(
-                bf_hits.index,
-                df.loc[bf_hits.index, "Low"] * 0.97,
-                marker="o",
-                color="gray",
-                alpha=0.5,
-                s=40,
-                label="底分型",
-                zorder=4,
-            )
+            bf_hits = bf_hits.dropna(subset=["bottom_fractal"])
+            if not bf_hits.empty:
+                ax.scatter(
+                    bf_hits.index,
+                    df.loc[bf_hits.index, "Low"] * 0.96,
+                    marker="o",
+                    color="#95a5a6",
+                    alpha=0.6,
+                    s=60,
+                    label="底分型",
+                    zorder=4,
+                )
 
-        # 標記分型低點與買訊
+        # 標記底底高買訊（使用星形標記，紫色，放在 K 線上方避免遮擋）
         if not hits.empty:
             for _, row in hits.iterrows():
                 hit_date = pd.to_datetime(row["date"])
                 if hit_date in df.index:
-                    close_val = df.loc[hit_date, "Close"]
+                    # 使用當日最高價的上方位置，避免壓到 K 線和其他標記
+                    high_val = df.loc[hit_date, "High"]
+                    marker_position = high_val * 1.05  # 在最高價上方 5%
                     ax.scatter(
                         hit_date,
-                        close_val,
-                        color="red",
-                        marker="^",
-                        s=120,
+                        marker_position,
+                        color="#9b59b6",  # 紫色
+                        marker="*",  # 星形
+                        s=300,
                         zorder=6,
                         label="底底高買訊",
+                        edgecolors="#ffffff",
+                        linewidths=1.5,
                     )
 
-        ax.set_title(f"{stock_id} K線 + 轉折點 + 底底高訊號", fontsize=14)
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Price")
-        ax.grid(True, linestyle="--", alpha=0.3)
-        ax.legend(loc="best")
-        ax.grid(True, linestyle="--", alpha=0.3)
+        # 設置標題和標籤（增大字體以提高可讀性）
+        ax.set_title(f"{stock_id} K線 + 轉折點 + 底底高訊號", fontsize=18, fontweight="bold", pad=20)
+        ax.set_xlabel("日期", fontsize=14, fontweight="bold")
+        ax.set_ylabel("價格", fontsize=14, fontweight="bold")
+        
+        # 設置網格和邊框
+        ax.grid(True, linestyle="--", alpha=0.4, color="#d0d6e2", zorder=1)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        for spine in ["left", "bottom"]:
+            ax.spines[spine].set_color("#d0d6e2")
+        
+        # 設置圖例（增大字體）
+        ax.legend(loc="best", fontsize=12, framealpha=0.95, edgecolor="#d0d6e2")
+        
+        # 設置刻度標籤字體大小
+        ax.tick_params(axis="both", which="major", labelsize=11)
+        
+        # 旋轉 x 軸日期標籤以避免重疊
+        plt.xticks(rotation=45, ha="right")
+        
         output_dir = os.path.join("output", "test_charts")
         os.makedirs(output_dir, exist_ok=True)
         chart_path = os.path.join(output_dir, f"{stock_id}_bottom_fractal.png")
         plt.tight_layout()
-        plt.savefig(chart_path)
+        plt.savefig(chart_path, dpi=120, bbox_inches="tight")
         plt.close(fig)
         print(f"🖼️  圖表已保存: {chart_path}")
     except Exception as exc:

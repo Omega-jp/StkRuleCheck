@@ -7,9 +7,10 @@ def identify_bottom_fractals(
     left: int = 2,
     right: int = 2,
     tol: float = 0.0,
+    turning_points_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
-    掃描所有底分型（不判斷底底高），僅基於價序列標記 n 根窗口的區間最低點。
+    掃描底分型，可選擇性地根據轉折點上下文過濾。
 
     定義：
     - 分型低點位置 p 滿足：
@@ -17,12 +18,19 @@ def identify_bottom_fractals(
         Low[p] <= min(Low[p+1:p+right+1]) * (1 + tol/100)
       需有足夠左右窗口資料。
     - 分型在右窗口結束日 i = p + right 確立。
+    
+    上下文過濾（可選）：
+    - 若提供 turning_points_df，則只在「最近轉折點為高點」時偵測底分型
+    - 這避免在上升趨勢中（轉折低點之後）偵測底分型的不合理情況
 
     Args:
         df: 必須包含 Open/High/Low/Close，日期索引或 date 欄位可轉 datetime。
         left: 左窗口長度。
         right: 右窗口長度。
         tol: 容忍百分比（小數），容許平低的誤差。
+        turning_points_df: 可選，轉折點 DataFrame。
+            若提供，必須包含 date, turning_high_point, turning_low_point 欄位。
+            用於過濾：只在最近轉折點為高點時偵測底分型。
 
     Returns:
         DataFrame 與 df 等長，包含：
@@ -45,6 +53,35 @@ def identify_bottom_fractals(
             data = data.set_index("date")
         else:
             raise ValueError("缺少 datetime index 或 date 欄位")
+
+    # 建立轉折點上下文映射（若提供）
+    turning_point_context = {}  # {date: {'type': 'high' or 'low', 'date': tp_date}}
+    if turning_points_df is not None:
+        tp = turning_points_df.copy()
+        if "date" in tp.columns:
+            tp["date"] = pd.to_datetime(tp["date"], errors="coerce")
+            tp = tp.set_index("date")
+        elif not isinstance(tp.index, pd.DatetimeIndex):
+            tp.index = pd.to_datetime(tp.index, errors="coerce")
+        
+        # 收集所有轉折點並按時間排序
+        tp_list = []
+        for idx, row in tp.iterrows():
+            if row.get("turning_high_point") == "O":
+                tp_list.append((idx, "high"))
+            elif row.get("turning_low_point") == "O":
+                tp_list.append((idx, "low"))
+        tp_list.sort(key=lambda x: x[0])
+        
+        # 為每個日期建立「最近轉折點類型與日期」映射
+        last_tp_info = None
+        tp_idx = 0
+        for date in data.index:
+            # 更新到當前日期為止的最近轉折點
+            while tp_idx < len(tp_list) and tp_list[tp_idx][0] <= date:
+                last_tp_info = {"type": tp_list[tp_idx][1], "date": tp_list[tp_idx][0]}
+                tp_idx += 1
+            turning_point_context[date] = last_tp_info
 
     # 預先建立與原始資料等長的結果，之後在確立時回填標記到「中心位置」
     results = [
@@ -106,11 +143,39 @@ def identify_bottom_fractals(
                 break
 
         if found:
-            # 標記在「成立那一天」（右窗口的末日），但記錄實際分型低點資訊
-            results[i]["bottom_fractal"] = "O"
-            results[i]["fractal_low"] = float(matched_low_p)
-            results[i]["fractal_low_date"] = data.index[matched_p].strftime("%Y-%m-%d")
-            results[i]["fractal_left_date"] = data.index[left_idx].strftime("%Y-%m-%d")
-            results[i]["fractal_right_date"] = data.index[i].strftime("%Y-%m-%d")
+            # 檢查轉折點上下文（若提供）
+            current_date = data.index[i]
+            should_mark = True
+            fractal_low_date = data.index[matched_p]
+            
+            if turning_points_df is not None:
+                # 只在最近轉折點是高點時才標記底分型
+                recent_tp = turning_point_context.get(current_date)
+                if recent_tp:
+                    # 邏輯修正：
+                    # 1. 如果最近是轉折高點 -> 處於下降趨勢 -> 允許底分型 (需檢查日期不回溯)
+                    # 2. 如果最近是轉折低點 -> 處於上升趨勢 -> 通常不允許
+                    #    但在轉折低點「當天」的底分型是有效的（它就是轉折點本身）
+                    
+                    if recent_tp["type"] == "high":
+                        # 條件: 分型低點日期必須在轉折高點日期之後或當天
+                        if fractal_low_date < recent_tp["date"]:
+                            should_mark = False
+                    elif recent_tp["type"] == "low":
+                        # 條件: 只有當分型低點日期等於轉折低點日期時才允許
+                        # (即該分型就是轉折低點)
+                        if fractal_low_date != recent_tp["date"]:
+                            should_mark = False
+                else:
+                    # 無轉折點上下文，保守過濾忽略
+                    pass
+            
+            if should_mark:
+                # 標記在「成立那一天」（右窗口的末日），但記錄實際分型低點資訊
+                results[i]["bottom_fractal"] = "O"
+                results[i]["fractal_low"] = float(matched_low_p)
+                results[i]["fractal_low_date"] = data.index[matched_p].strftime("%Y-%m-%d")
+                results[i]["fractal_left_date"] = data.index[left_idx].strftime("%Y-%m-%d")
+                results[i]["fractal_right_date"] = data.index[i].strftime("%Y-%m-%d")
 
     return pd.DataFrame(results)

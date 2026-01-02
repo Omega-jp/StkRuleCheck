@@ -279,7 +279,13 @@ def run(stock_id: str, days: int, left: int, right: int, tol: float):
     print(f"數據範圍：{df.index[0].strftime('%Y-%m-%d')} ~ {df.index[-1].strftime('%Y-%m-%d')}  共 {len(df)} 筆")
 
     turning = identify_turning_points(df)
-    fractals = identify_bottom_fractals(df, left=left, right=right, tol=tol)
+    fractals = identify_bottom_fractals(
+        df, 
+        left=left, 
+        right=right, 
+        tol=tol,
+        turning_points_df=turning  # 傳入轉折點以啟用上下文過濾
+    )
     signals = check_bottom_fractal_higher_low(
         df,
         turning_points_df=turning,

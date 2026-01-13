@@ -194,6 +194,20 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
         for i, date in enumerate(dates):
             open_price = opens.iloc[i]
             high_price = highs.iloc[i]
+        
+        # 主圖：K線圖
+        plt.subplot(2, 1, 1)
+        dates = recent_df.index
+        opens = recent_df['Open']
+        highs = recent_df['High']
+        lows = recent_df['Low']
+        closes = recent_df['Close']
+        
+        # 繪製K棒
+        print("   繪製K棒...")
+        for i, date in enumerate(dates):
+            open_price = opens.iloc[i]
+            high_price = highs.iloc[i]
             low_price = lows.iloc[i]
             close_price = closes.iloc[i]
             
@@ -201,7 +215,7 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
             
             # 繪製上下影線
             plt.plot([date, date], [low_price, high_price], 
-                    color='black', linewidth=0.8, alpha=0.8)
+                    color='black', linewidth=0.8, alpha=0.8, zorder=1)
             
             # 繪製實體K棒
             body_height = abs(close_price - open_price)
@@ -212,12 +226,12 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
                 rect = plt.Rectangle((date - bar_width/2, body_bottom), 
                                    bar_width, body_height, 
                                    facecolor='white', edgecolor='red', 
-                                   linewidth=1.2, alpha=0.9)
+                                   linewidth=1.2, alpha=1.0, zorder=2)
             else:  # 下跌K棒（綠色實心）
                 rect = plt.Rectangle((date - bar_width/2, body_bottom), 
                                    bar_width, body_height, 
                                    facecolor='green', edgecolor='green', 
-                                   linewidth=1.2, alpha=0.9)
+                                   linewidth=1.2, alpha=1.0, zorder=2)
             
             plt.gca().add_patch(rect)
         

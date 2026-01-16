@@ -20,6 +20,10 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+# 強制將標準輸出設為 UTF-8，解決 Windows 控制台 (CP950) 無法顯示 Emoji 的問題
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
 from matplotlib.patches import Rectangle
@@ -67,9 +71,48 @@ def debug_turning_point_execution(stock_id='2330', days=60):
         from src.validate_buy_rule import load_stock_data
         from src.baseRule.turning_point_identification import (
             identify_turning_points, 
-            detect_cross_events,
-            TurningPointTracker
+            detect_cross_events
         )
+
+        class TurningPointTracker:
+            """
+            用於追蹤群組內極值位移的輔助類
+            (僅用於診斷與視覺化，不影響核心算法)
+            """
+            def __init__(self):
+                self.current_group_type = None  # 'positive' or 'negative'
+                self.current_group_start_idx = -1
+                self.current_extremum_idx = -1
+                self.current_extremum_date = None
+                self.current_extremum_value = None
+
+            def start_positive_group(self, idx, date, high_val):
+                self.current_group_type = 'positive'
+                self.current_group_start_idx = idx
+                self.current_extremum_idx = idx
+                self.current_extremum_date = date
+                self.current_extremum_value = high_val
+
+            def start_negative_group(self, idx, date, low_val):
+                self.current_group_type = 'negative'
+                self.current_group_start_idx = idx
+                self.current_extremum_idx = idx
+                self.current_extremum_date = date
+                self.current_extremum_value = low_val
+
+            def update_extremum_in_positive_group(self, idx, date, high_val):
+                if self.current_group_type == 'positive':
+                    if high_val >= self.current_extremum_value:
+                        self.current_extremum_idx = idx
+                        self.current_extremum_date = date
+                        self.current_extremum_value = high_val
+            
+            def update_extremum_in_negative_group(self, idx, date, low_val):
+                if self.current_group_type == 'negative':
+                    if low_val <= self.current_extremum_value:
+                        self.current_extremum_idx = idx
+                        self.current_extremum_date = date
+                        self.current_extremum_value = low_val
         
         # 載入數據
         print("\n🔄 載入股票數據...")
@@ -297,62 +340,57 @@ def create_diagnostic_chart(df, turning_points_df, stock_id):
     try:
         setup_chinese_font()
         
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), 
+        # 調整圖表尺寸符合規格書建議 (18, 8)，但因為我們有兩個子圖，稍微增高
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12), 
                                         gridspec_kw={'height_ratios': [3, 1]})
         
         dates = df.index
         
         # === 上圖：K線 + MA5 + 轉折點 ===
         
-        # 繪製K線（模仿專業看盤軟體風格）
+        # 繪製K線 (使用 Z-Order 方法 A)
         for i, (date, row) in enumerate(df.iterrows()):
-            is_up = row['Close'] >= row['Open']  # 上漲或平盤
+            is_up = row['Close'] >= row['Open']
             
-            # 計算實體的上下邊界
-            body_top = max(row['Close'], row['Open'])
+            # K線參數
+            bar_width = pd.Timedelta(hours=16)
+            date_center = date + bar_width / 2
+            
+            # 1. 繪製影線 (Z-Order=1) - 黑色，一次畫完 Low 到 High
+            ax1.plot([date_center, date_center], [row['Low'], row['High']], 
+                    color='black', linewidth=0.8, alpha=1.0, zorder=1)
+            
+            # 2. 繪製實體 (Z-Order=2) - 必須覆蓋影線 (alpha=1.0)
             body_bottom = min(row['Close'], row['Open'])
             body_height = abs(row['Close'] - row['Open'])
             
-            # 計算K線實體的中心時間點（用於繪製影線）
-            bar_width = pd.Timedelta(hours=16)  # K線寬度
-            date_center = date + bar_width / 2  # 實體中心
-            
-            # 繪製上影線（從實體頂部到最高價，在中心位置）
-            if row['High'] > body_top:
-                ax1.plot([date_center, date_center], [body_top, row['High']], 
-                        color='black', linewidth=0.8, alpha=0.8, solid_capstyle='butt')
-            
-            # 繪製下影線（從實體底部到最低價，在中心位置）
-            if row['Low'] < body_bottom:
-                ax1.plot([date_center, date_center], [row['Low'], body_bottom], 
-                        color='black', linewidth=0.8, alpha=0.8, solid_capstyle='butt')
-            
-            # 繪製K線實體
-            if body_height > 0.01:  # 有實體
+            if body_height == 0:  # 十字線處理
+                # 即使是十字線，也畫一個極扁的長方形，或者直接畫橫線
+                line_color = 'red' if is_up else 'green'
+                ax1.plot([date, date + bar_width], [row['Close'], row['Close']],
+                        color=line_color, linewidth=1.5, zorder=3)
+            else:
                 if is_up:
-                    # 紅K：空心（只有邊框）
+                    # 上漲: 紅框白底
                     ax1.add_patch(Rectangle((date, body_bottom), 
                                            bar_width, body_height,
                                            facecolor='white', 
                                            edgecolor='red', 
-                                           linewidth=1.2, 
-                                           alpha=1.0))
+                                           linewidth=1.2,
+                                           alpha=1.0, 
+                                           zorder=2))
                 else:
-                    # 綠K：實心
+                    # 下跌: 綠框綠底
                     ax1.add_patch(Rectangle((date, body_bottom), 
                                            bar_width, body_height,
                                            facecolor='green', 
-                                           edgecolor='darkgreen', 
+                                           edgecolor='green', 
                                            linewidth=1.0, 
-                                           alpha=0.9))
-            else:  # 十字線（開盤=收盤）
-                line_color = 'red' if is_up else 'green'
-                ax1.plot([date, date + bar_width], 
-                        [row['Close'], row['Close']], 
-                        color=line_color, linewidth=1.5, alpha=0.9)
+                                           alpha=1.0, 
+                                           zorder=2))
         
-        # 繪製MA5
-        ax1.plot(dates, df['ma5'], label='MA5', color='blue', linewidth=1.5, alpha=0.7)
+        # 繪製MA5 (Z-Order=5)
+        ax1.plot(dates, df['ma5'], label='MA5', color='blue', linewidth=1.5, alpha=0.8, zorder=5)
         
         # 標記轉折高點
         high_points = turning_points_df[turning_points_df['turning_high_point'] == 'O']
@@ -362,9 +400,9 @@ def create_diagnostic_chart(df, turning_points_df, stock_id):
                 price = df.loc[date_obj, 'High']
                 offset = (df['High'].max() - df['Low'].min()) * 0.015
                 ax1.scatter(date_obj + pd.Timedelta(hours=8), price + offset, 
-                           color='darkred', s=50, marker='v', 
+                           color='darkred', s=60, marker='v', 
                            edgecolors='red', linewidths=0.5,
-                           zorder=5, label='轉折高點' if idx == high_points.index[0] else '')
+                           zorder=15, label='轉折高點' if idx == high_points.index[0] else '')
         
         # 標記轉折低點
         low_points = turning_points_df[turning_points_df['turning_low_point'] == 'O']
@@ -374,14 +412,14 @@ def create_diagnostic_chart(df, turning_points_df, stock_id):
                 price = df.loc[date_obj, 'Low']
                 offset = (df['High'].max() - df['Low'].min()) * 0.015
                 ax1.scatter(date_obj + pd.Timedelta(hours=8), price - offset, 
-                           color='darkgreen', s=50, marker='^', 
+                           color='darkgreen', s=60, marker='^', 
                            edgecolors='green', linewidths=0.5,
-                           zorder=5, label='轉折低點' if idx == low_points.index[0] else '')
+                           zorder=15, label='轉折低點' if idx == low_points.index[0] else '')
         
-        ax1.set_title(f'{stock_id} 轉折點診斷圖 (書本規格版)', fontsize=16, fontweight='bold')
+        ax1.set_title(f'{stock_id} 轉折點診斷圖 (符合規格書標準)', fontsize=16, fontweight='bold')
         ax1.set_ylabel('價格', fontsize=12)
         ax1.legend(loc='upper left', fontsize=10)
-        ax1.grid(True, alpha=0.3)
+        ax1.grid(True, color='gray', alpha=0.3)
         
         # === 下圖：收盤價與MA5的相對位置 ===
         

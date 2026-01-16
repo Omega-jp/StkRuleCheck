@@ -1,189 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-轉折點識別模塊 - 書本規格標準版 v3.0
+轉折點識別模塊 - 書本規格標準版 v4.0 (區間極值版)
 
-完全依據書本規格實作轉折點識別，包含完整的位移規則。
+根據 v2.0 規格書 (實務簡化版) 實作：
+不再使用複雜的「位移」邏輯，改採「區間極值 (Range Extremum)」原則。
 
-書本規格6大規則：
-1. 以5日均線為依據
-2. 正價/負價群組定義（收盤價與MA5的相對位置）
-3. 向下跌破時取正價群組最高點（含上影線）
-4. 向上突破時取負價群組最低點（含下影線）
-5. 依序連接高低點成轉折波
-6. 重要原則：
-   (1) 不可遺漏最高點及最低點
-   (2) ⭐ 位移規則：在下個點產生前，如果右邊有更高或更低的點，該高低點要位移
-   (3) 高低點交互選取
+核心邏輯：
+1. 向上穿越 (Cross Up) 時：在「前一個轉折高點之後」到「本次穿越點」之間，找最低價 (Low) 為轉折低點。
+2. 向下穿越 (Cross Down) 時：在「前一個轉折低點之後」到「本次穿越點」之間，找最高價 (High) 為轉折高點。
 
-⚠️ v3.0 改進：移除「連續2天確認」機制，改為單日穿越（符合書本原意）
-
-實作方式：採用「即時更新法」實現位移規則
-- 在群組內持續追蹤極值，發現更極端的值立即更新（位移）
-- 當穿越發生時才確認標記，自然符合位移規則
-
-版本：v3.0
-更新日期：2025-10-27
+版本：v4.0
+更新日期：2026-01-15
 """
 
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple
-
-
-class TurningPointTracker:
-    """
-    轉折點追蹤器
-    
-    負責追蹤當前正價/負價群組，並在群組內持續更新極值（實現位移規則）
-    """
-    
-    def __init__(self):
-        """初始化追蹤器"""
-        # 當前群組狀態
-        self.current_group_type: Optional[str] = None  # 'positive' 或 'negative'
-        self.current_group_start_idx: Optional[int] = None  # 群組起始索引
-        
-        # 當前群組的極值追蹤（這個會持續更新，實現位移）
-        self.current_extremum_idx: Optional[int] = None  # 極值的索引位置
-        self.current_extremum_date: Optional[str] = None  # 極值的日期
-        self.current_extremum_value: Optional[float] = None  # 極值的價格
-        
-        # 已確認的標記歷史
-        self.confirmed_marks: dict = {}  # {date: 'high' 或 'low'}
-        self.last_confirmed_type: Optional[str] = None  # 上次確認的類型
-        
-    def start_positive_group(self, idx: int, date: str, high_price: float):
-        """
-        開始新的正價群組
-        
-        Args:
-            idx: 索引位置
-            date: 日期字串
-            high_price: 最高價
-        """
-        self.current_group_type = 'positive'
-        self.current_group_start_idx = idx
-        self.current_extremum_idx = idx
-        self.current_extremum_date = date
-        self.current_extremum_value = high_price
-    
-    def start_negative_group(self, idx: int, date: str, low_price: float):
-        """
-        開始新的負價群組
-        
-        Args:
-            idx: 索引位置
-            date: 日期字串
-            low_price: 最低價
-        """
-        self.current_group_type = 'negative'
-        self.current_group_start_idx = idx
-        self.current_extremum_idx = idx
-        self.current_extremum_date = date
-        self.current_extremum_value = low_price
-    
-    def update_extremum_in_positive_group(self, idx: int, date: str, high_price: float):
-        """
-        在正價群組內更新最高點（實現位移規則）
-        
-        如果發現更高的點，就更新極值位置（這就是位移）
-        
-        Args:
-            idx: 索引位置
-            date: 日期字串
-            high_price: 最高價
-        """
-        if self.current_group_type != 'positive':
-            return
-        
-        if high_price > self.current_extremum_value:
-            # 發現更高的點 → 位移
-            self.current_extremum_idx = idx
-            self.current_extremum_date = date
-            self.current_extremum_value = high_price
-    
-    def update_extremum_in_negative_group(self, idx: int, date: str, low_price: float):
-        """
-        在負價群組內更新最低點（實現位移規則）
-        
-        如果發現更低的點，就更新極值位置（這就是位移）
-        
-        Args:
-            idx: 索引位置
-            date: 日期字串
-            low_price: 最低價
-        """
-        if self.current_group_type != 'negative':
-            return
-        
-        if low_price < self.current_extremum_value:
-            # 發現更低的點 → 位移
-            self.current_extremum_idx = idx
-            self.current_extremum_date = date
-            self.current_extremum_value = low_price
-    
-    def confirm_current_extremum(self, mark_type: str) -> Optional[Tuple[str, str]]:
-        """
-        確認當前群組的極值為轉折點
-        
-        檢查高低點交替原則，如果符合則確認標記
-        
-        Args:
-            mark_type: 'high' 或 'low'
-        
-        Returns:
-            如果可以標記，返回 (date, mark_type)，否則返回 None
-        """
-        # 檢查是否有極值可確認
-        if self.current_extremum_date is None:
-            return None
-        
-        # 檢查高低點交替原則
-        if self.last_confirmed_type == mark_type:
-            # 連續相同類型，不符合交替原則，不標記
-            return None
-        
-        # 檢查是否已經標記過這個日期
-        if self.current_extremum_date in self.confirmed_marks:
-            return None
-        
-        # 確認標記
-        self.confirmed_marks[self.current_extremum_date] = mark_type
-        self.last_confirmed_type = mark_type
-        
-        return (self.current_extremum_date, mark_type)
-
+from typing import Optional, Tuple, List
 
 def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
     """
-    檢測收盤價與MA5的穿越事件
-    
-    ⚠️ v3.0: 改為單日穿越，移除連續2天確認機制
+    檢測收盤價與MA5的穿越事件 (單日穿越)
     
     Args:
-        df: K線數據，需要包含 'Close' 和 'ma5' 欄位
+        df: K線數據，需包含 'Close' 和 'ma5'
     
     Returns:
-        增加了穿越標記欄位的DataFrame
+        包含 'cross_up', 'cross_down' 標記的 DataFrame copy
     """
     df_cross = df.copy()
     
     # 計算收盤價與MA5的相對位置
     df_cross['close_above_ma5'] = df_cross['Close'] > df_cross['ma5']
-    # Use nullable boolean dtype to keep NA support without implicit downcasting
+    
+    # 前一天的狀態
     df_cross['prev_close_above_ma5'] = (
         df_cross['close_above_ma5'].shift(1).astype('boolean')
     )
     
-    # ⚠️ 單日穿越：只需要前後一天比較
-    # 向上穿越：前一天在MA5下方或等於，當天在MA5上方
+    # 向上穿越：前一天 <= MA5, 當天 > MA5
     df_cross['cross_up'] = (
         (df_cross['close_above_ma5']) &
         (~df_cross['prev_close_above_ma5'].fillna(False))
     )
     
-    # 向下穿越：前一天在MA5上方或等於，當天在MA5下方
+    # 向下穿越：前一天 >= MA5, 當天 < MA5
     df_cross['cross_down'] = (
         (~df_cross['close_above_ma5']) &
         (df_cross['prev_close_above_ma5'].fillna(True))
@@ -191,183 +52,122 @@ def detect_cross_events(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_cross
 
-
 def identify_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFrame:
     """
-    識別股價的轉折高點和轉折低點（書本規格完整版 v3.0）
-    
-    完整實作書本規格的6大規則，特別是位移規則（規則6-2）
-    採用「即時更新法」：在群組內持續追蹤極值，發現更極端值立即更新位置
-    
-    ⚠️ v3.0 重要改進：
-    - 移除「連續2天確認」機制
-    - 改為單日穿越（完全符合書本原意）
-    - 能捕捉到更多的轉折點
+    識別股價的轉折高點和轉折低點 (區間極值法)
     
     Args:
-        df: K線數據DataFrame，需要包含以下欄位：
-            - Close: 收盤價
-            - High: 最高價（含上影線）
-            - Low: 最低價（含下影線）
-            - ma5: 5日移動平均線
-        window_size: 保留參數，向後兼容（實際不使用）
-    
+        df: K線數據 (需包含 Close, High, Low, ma5)
+        window_size: 保留參數，未使用
+        
     Returns:
-        DataFrame，包含以下欄位：
-            - date: 日期（字串格式 'YYYY-MM-DD'）
-            - turning_high_point: 轉折高點標記（'O' 或 ''）
-            - turning_low_point: 轉折低點標記（'O' 或 ''）
-    
-    實作說明：
-        1. 使用單日穿越檢測（符合書本規格）
-        2. 使用TurningPointTracker持續追蹤群組內極值
-        3. 當發現更極端的值時立即更新（實現位移規則）
-        4. 穿越發生時確認標記（自動符合位移規則）
-        5. 確保高低點交替（規則6-3）
+        DataFrame (date, turning_high_point, turning_low_point)
     """
-    # 初始化結果列表
-    results = []
-    
-    # 檢查必要欄位
+    # 1. 基本檢查與初始化
     if 'ma5' not in df.columns:
         raise ValueError("DataFrame必須包含'ma5'欄位")
     
-    # 初始化轉折點追蹤器
-    tracker = TurningPointTracker()
+    # 建立結果容器
+    # 用 list of dict 來存，最後再轉 DataFrame，比逐行 append 效能好
+    # 但為了配合原有回傳格式，我們最後會 merge 回去或生成新結構
+    # 這裡策略：先標記在一個 mask 上，最後生成結果
     
-    # 檢測穿越事件（單日穿越）
-    df_with_cross = detect_cross_events(df)
+    n = len(df)
+    turning_high_mask = [False] * n
+    turning_low_mask = [False] * n
     
-    # 記錄當前所處的群組類型
-    current_position = None  # 'above' 或 'below'
+    # 2. 檢測穿越
+    df_cross = detect_cross_events(df)
     
-    # 遍歷每一根K線
-    for i, (idx, row) in enumerate(df_with_cross.iterrows()):
-        date = idx.strftime('%Y-%m-%d')
+    # 3. 核心變數初始化
+    # 我們需要記錄「前一個轉折點的索引」，用來定義搜尋區間的起點
+    # 初始值設為 -1 (代表從資料最開頭開始找)
+    last_turned_high_idx = -1
+    last_turned_low_idx = -1
+    
+    # 為了處理第一筆資料前的狀態，我們需要知道第一筆是在 MA5 上方還是下方
+    # 如果第一筆就在 MA5 上方，那潛在的第一個轉折點應該是「轉折高」
+    # 反之亦然。不過根據區間極值法，我們只需等到「穿越」發生再來回溯即可。
+    
+    # 遍歷每一天
+    for i in range(n):
+        row = df_cross.iloc[i]
         
-        # 初始化當天的結果
-        turning_high_point = ''
-        turning_low_point = ''
-        
-        # 邊界條件檢查（只需要前1天數據）
-        if i < 1 or pd.isna(row['ma5']):
-            results.append({
-                'date': date,
-                'turning_high_point': turning_high_point,
-                'turning_low_point': turning_low_point
-            })
+        # 邊界保護：MA5 無值時不處理 (通常是前4天)
+        if pd.isna(row['ma5']):
             continue
-        
-        # 取得當前收盤價與MA5的關係
-        close_above_ma5 = row['close_above_ma5']
-        
-        # === 處理穿越事件 ===
-        
-        # 檢測向上穿越
+            
+        # === 處理 向上穿越 (找轉折低) ===
         if row['cross_up']:
-            # 發生向上穿越 → 結束負價群組，開始正價群組
+            # 定義搜尋區間 [start, end]
+            # start: 前一個轉折高點的「下一根」 (如果沒轉折高，就從資料頭開始)
+            start_idx = max(0, last_turned_high_idx + 1)
+            end_idx = i  # 包含當前這根 Cross Up K棒
             
-            # 1. 確認前一個負價群組的轉折低點
-            if tracker.current_group_type == 'negative':
-                mark_result = tracker.confirm_current_extremum('low')
-                if mark_result:
-                    mark_date, mark_type = mark_result
-                    # 找到對應日期並標記
-                    for j, result in enumerate(results):
-                        if result['date'] == mark_date:
-                            results[j]['turning_low_point'] = 'O'
-                            break
+            # 區間極值搜尋：找 Low 的最小值
+            # slice is [start_idx : end_idx + 1] because python slice is exclusive at end
+            interval_df = df_cross.iloc[start_idx : end_idx + 1]
             
-            # 2. 開始新的正價群組
-            tracker.start_positive_group(i, date, row['High'])
-            current_position = 'above'
+            if not interval_df.empty:
+                min_low_val = interval_df['Low'].min()
+                # 找出最小值對應的 relative index
+                # idxmin() 回傳的是原有 index (可能是 DateIndex 或 IntIndex)
+                # 為了穩健，我們用 mask 找
+                # 注意：如果有多個相同最低價，通常取第一個或最後一個皆可，這裡取第一個
+                target_date_idx = interval_df[interval_df['Low'] == min_low_val].index[0]
+                
+                # 轉回整數 index (如果是依賴 iloc)
+                # 這裡稍微麻煩點，因為 df index 可能是 Date。
+                # 簡單作法：透過 interval_df 的 row number 加上 start_idx
+                # 或者直接用 get_loc 如果 index 是 unique 的
+                target_integer_idx = df_cross.index.get_loc(target_date_idx)
+                
+                # 標記轉折低點
+                turning_low_mask[target_integer_idx] = True
+                
+                # 更新狀態
+                last_turned_low_idx = target_integer_idx
         
-        # 檢測向下穿越
+        # === 處理 向下穿越 (找轉折高) ===
         elif row['cross_down']:
-            # 發生向下穿越 → 結束正價群組，開始負價群組
+            # 定義搜尋區間 [start, end]
+            # start: 前一個轉折低點的「下一根」
+            start_idx = max(0, last_turned_low_idx + 1)
+            end_idx = i
             
-            # 1. 確認前一個正價群組的轉折高點
-            if tracker.current_group_type == 'positive':
-                mark_result = tracker.confirm_current_extremum('high')
-                if mark_result:
-                    mark_date, mark_type = mark_result
-                    # 找到對應日期並標記
-                    for j, result in enumerate(results):
-                        if result['date'] == mark_date:
-                            results[j]['turning_high_point'] = 'O'
-                            break
+            # 區間極值搜尋：找 High 的最大值
+            interval_df = df_cross.iloc[start_idx : end_idx + 1]
             
-            # 2. 開始新的負價群組
-            tracker.start_negative_group(i, date, row['Low'])
-            current_position = 'below'
-        
-        # === 在同一群組內更新極值（實現位移規則） ===
-        else:
-            # 沒有穿越事件，在當前群組內更新極值
-            
-            if close_above_ma5 and tracker.current_group_type == 'positive':
-                # 在正價群組內，檢查是否有更高的點
-                tracker.update_extremum_in_positive_group(i, date, row['High'])
-            
-            elif not close_above_ma5 and tracker.current_group_type == 'negative':
-                # 在負價群組內，檢查是否有更低的點
-                tracker.update_extremum_in_negative_group(i, date, row['Low'])
-            
-            elif close_above_ma5 and tracker.current_group_type is None:
-                # 第一次進入正價群組
-                tracker.start_positive_group(i, date, row['High'])
-                current_position = 'above'
-            
-            elif not close_above_ma5 and tracker.current_group_type is None:
-                # 第一次進入負價群組
-                tracker.start_negative_group(i, date, row['Low'])
-                current_position = 'below'
-        
-        # 記錄當天結果
+            if not interval_df.empty:
+                max_high_val = interval_df['High'].max()
+                target_date_idx = interval_df[interval_df['High'] == max_high_val].index[0]
+                target_integer_idx = df_cross.index.get_loc(target_date_idx)
+                
+                # 標記轉折高點
+                turning_high_mask[target_integer_idx] = True
+                
+                # 更新狀態
+                last_turned_high_idx = target_integer_idx
+
+    # 4. 格式化輸出結果
+    results = []
+    for i in range(n):
+        date_str = df.index[i].strftime('%Y-%m-%d')
         results.append({
-            'date': date,
-            'turning_high_point': turning_high_point,
-            'turning_low_point': turning_low_point
+            'date': date_str,
+            'turning_high_point': 'O' if turning_high_mask[i] else '',
+            'turning_low_point': 'O' if turning_low_mask[i] else ''
         })
-    
-    # === 處理最後一個未完成的群組 ===
-    # 如果數據結束時仍有未確認的群組，可選擇是否標記
-    # 這裡採用保守策略：不標記未完成的群組
-    
+        
     return pd.DataFrame(results)
 
-
 def check_turning_points(df: pd.DataFrame, window_size: int = 5) -> pd.DataFrame:
-    """
-    檢查轉折點（向後兼容的別名函數）
-    
-    Args:
-        df: K線數據
-        window_size: 保留參數（向後兼容）
-    
-    Returns:
-        轉折點識別結果
-    """
+    """向後兼容的別名"""
     return identify_turning_points(df, window_size)
-
 
 def verify_turning_points_quality(df: pd.DataFrame, turning_points_df: pd.DataFrame) -> dict:
     """
     驗證轉折點識別質量
-    
-    檢查是否符合書本規格的重要原則
-    
-    Args:
-        df: 原始K線數據
-        turning_points_df: 轉折點識別結果
-    
-    Returns:
-        dict，包含驗證結果：
-            - alternating: 是否高低點交替
-            - no_missing_extremum: 是否無遺漏極值
-            - high_points_count: 轉折高點數量
-            - low_points_count: 轉折低點數量
-            - issues: 問題列表
     """
     issues = []
     
@@ -375,7 +175,7 @@ def verify_turning_points_quality(df: pd.DataFrame, turning_points_df: pd.DataFr
     high_points = turning_points_df[turning_points_df['turning_high_point'] == 'O']['date'].tolist()
     low_points = turning_points_df[turning_points_df['turning_low_point'] == 'O']['date'].tolist()
     
-    # 合併並排序所有轉折點
+    # 合併並排序
     all_points = []
     for date in high_points:
         all_points.append((date, 'high'))
@@ -387,27 +187,29 @@ def verify_turning_points_quality(df: pd.DataFrame, turning_points_df: pd.DataFr
     alternating = True
     for i in range(len(all_points) - 1):
         if all_points[i][1] == all_points[i+1][1]:
+            # 這在區間極值法中仍可能發生嗎？
+            # 理論上如果 MA5 頻繁震盪，可能會導致連續 cross up/down?
+            # 不，cross up 後必須先有 cross down 才能再次 cross up (除非 MA5 剛好相等)
+            # 但我們的區間定義是依賴「前一個轉折點」，這會強制交替嗎？
+            # 其實 identify_turning_points 邏輯裡：
+            # 找低點依賴 last_high，找高點依賴 last_low。
+            # 初始都為 -1。
+            # 如果連續兩次 Cross Up (中間沒 Cross Down)，會發生什麼？
+            # 正常的 MA5 穿越不會連續兩次 Cross Up，中間一定夾雜 Cross Down。
+            # 所以理論上是交替的。
             alternating = False
             issues.append(f"連續兩個{all_points[i][1]}點: {all_points[i][0]} 和 {all_points[i+1][0]}")
-    
-    # 檢查2：是否有遺漏的極值
-    no_missing_extremum = True  # 簡化版本，完整檢查需要更多代碼
-    
+            
     return {
         'alternating': alternating,
-        'no_missing_extremum': no_missing_extremum,
         'high_points_count': len(high_points),
         'low_points_count': len(low_points),
         'issues': issues
     }
 
-
 if __name__ == "__main__":
-    print("轉折點識別模塊 - 書本規格標準版 v3.0")
+    print("轉折點識別模塊 - 書本規格標準版 v4.0 (區間極值版)")
     print("="*60)
-    print("⚠️ v3.0 改進：單日穿越，移除連續2天確認")
-    print("完整實作書本規格的6大規則，特別是位移規則")
-    print("使用方式：")
-    print("  from turning_point_identification import identify_turning_points")
-    print("  result = identify_turning_points(df)")
+    print("功能：使用區間極值法 (Range Extremum) 識別轉折點")
+    print("邏輯簡化：不再需要複雜的位移處理，直接搜尋區間極值")
     print("="*60)

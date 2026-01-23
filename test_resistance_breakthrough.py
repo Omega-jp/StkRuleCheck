@@ -19,71 +19,50 @@ from src.buyRule.breakthrough_resistance_line import (
     get_resistance_line_data,
 )
 
-def find_breakthrough_resistance_lines(high_point_dates, high_point_prices, resistance_results, recent_df):
+def find_breakthrough_resistance_lines(resistance_results, resistance_data, recent_df):
     """
-    找出所有被突破的壓力線 - 基於實際算法邏輯（最近兩個轉折高點）
+    找出所有被突破的壓力線 - 直接使用後端計算的壓力線數據 (Trading Days邏輯)
     """
     breakthrough_lines = []
     
-    # 獲取所有突破日期和詳細資訊
-    breakthrough_info = []
+    # 建立日期索引查找表
+    date_lookup = {idx.strftime('%Y-%m-%d'): idx for idx in recent_df.index}
+    
+    # 將 resistance_data 轉為以 date 為索引，方便查詢
+    res_data_map = resistance_data.set_index('date')
+    
     for _, row in resistance_results.iterrows():
+        # 只處理被標記為突破的日子
         if row['resistance_line_breakthrough_check'] == 'O':
             date_str = row['date']
-            matching_dates = recent_df[recent_df.index.strftime('%Y-%m-%d') == date_str]
-            if not matching_dates.empty:
-                breakthrough_date = matching_dates.index[0]
-                breakthrough_close = matching_dates.iloc[0]['Close']
-                breakthrough_info.append({
-                    'date': breakthrough_date,
-                    'close': breakthrough_close
-                })
-    
-    if not breakthrough_info or len(high_point_dates) < 2:
-        return breakthrough_lines
-    
-    # 按時間順序排序突破點
-    breakthrough_info.sort(key=lambda x: x['date'])
-    
-    # 對每個突破點，找出該時點的"當前最新壓力線"
-    for breakthrough in breakthrough_info:
-        breakthrough_date = breakthrough['date']
-        breakthrough_close = breakthrough['close']
-        
-        # 找出突破日期之前的所有轉折高點
-        available_high_points = []
-        for i, high_date in enumerate(high_point_dates):
-            if high_date < breakthrough_date:
-                available_high_points.append({
-                    'date': high_date,
-                    'price': high_point_prices[i]
-                })
-        
-        # 需要至少2個轉折高點才能形成壓力線
-        if len(available_high_points) >= 2:
-            # 取最近的兩個轉折高點（這就是突破當時的"當前最新壓力線"）
-            point1 = available_high_points[-2]  # 倒數第二個
-            point2 = available_high_points[-1]  # 最後一個
             
-            # 計算突破點處的壓力線價格
-            days_diff = (point2['date'] - point1['date']).days
-            extend_days = (breakthrough_date - point2['date']).days
-            
-            if days_diff > 0 and extend_days >= 0:
-                slope = (point2['price'] - point1['price']) / days_diff
-                resistance_price = point2['price'] + slope * extend_days
+            # 確保有這天的壓力線數據
+            if date_str in res_data_map.index:
+                res_row = res_data_map.loc[date_str]
                 
-                # 計算突破幅度
-                if resistance_price > 0:
-                    breakthrough_ratio = (breakthrough_close / resistance_price - 1) * 100
+                # 確保有有效的壓力線點位 (斜率壓力線需要 point1 和 point2)
+                p1_date_str = res_row.get('point1_date')
+                p2_date_str = res_row.get('point2_date')
+                
+                if p1_date_str and p2_date_str:
+                    breakthrough_date = date_lookup.get(date_str)
+                    p1_date = date_lookup.get(p1_date_str)
+                    p2_date = date_lookup.get(p2_date_str)
                     
-                    # 確認確實是突破（收盤價高於壓力線）
-                    if breakthrough_close > resistance_price:
+                    if breakthrough_date and p1_date and p2_date:
+                        resistance_price = res_row['resistance_price']
+                        breakthrough_close = recent_df.loc[breakthrough_date]['Close']
+                        
+                        # 計算突破幅度
+                        breakthrough_ratio = 0
+                        if resistance_price > 0:
+                            breakthrough_ratio = (breakthrough_close / resistance_price - 1) * 100
+                            
                         line_info = {
-                            'point1_date': point1['date'],
-                            'point1_price': point1['price'],
-                            'point2_date': point2['date'],
-                            'point2_price': point2['price'],
+                            'point1_date': p1_date,
+                            'point1_price': res_row['point1_price'],
+                            'point2_date': p2_date,
+                            'point2_price': res_row['point2_price'],
                             'breakthrough_date': breakthrough_date,
                             'breakthrough_price': breakthrough_close,
                             'resistance_price': resistance_price,
@@ -292,7 +271,7 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
         # 繪製所有被突破的斜率壓力線
         print("   分析並繪製被突破的壓力線...")
         breakthrough_resistance_lines = find_breakthrough_resistance_lines(
-            high_point_dates, high_point_prices, resistance_results, recent_df
+            resistance_results, resistance_data, recent_df
         )
         
         if breakthrough_resistance_lines:

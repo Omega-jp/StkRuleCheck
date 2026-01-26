@@ -203,10 +203,10 @@ def main():
         '底底高分型',
     ]
     
-    # 確保所有欄位都存在，如果不存在則添加
+    # 確保所有欄位都存在，如果不存在則添加（無訊號保持空白）
     for col in column_order:
         if col not in summary_df.columns:
-            summary_df[col] = 'Not Available'
+            summary_df[col] = ''
     
     # 重新排序欄位
     other_cols = [col for col in summary_df.columns if col not in column_order]
@@ -225,7 +225,7 @@ def main():
     for rule_col in column_order[2:]:  # 跳過 StockID 和 StockName
         if rule_col in summary_df.columns:
             triggered_count = len(summary_df[summary_df[rule_col] == 'O'])
-            total_count = len(summary_df[summary_df[rule_col].notna() & (summary_df[rule_col] != 'Error') & (summary_df[rule_col] != 'Not Available')])
+            total_count = len(summary_df[summary_df[rule_col].notna() & (summary_df[rule_col] != 'Error') & (summary_df[rule_col] != '')])
             print(f"{rule_col}: {triggered_count}/{total_count} ({triggered_count/max(total_count,1)*100:.1f}%)")
 
 if __name__ == '__main__':

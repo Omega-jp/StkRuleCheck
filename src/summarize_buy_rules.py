@@ -69,6 +69,10 @@ def get_latest_result(df, rule_name, stock_id):
         rule_df = check_func(df, require_positive_histo=True)
     else:
         check_func = getattr(module, f'check_{rule_name.replace("breakthrough_", "")}', None)
+        # 嘗試標準命名 check_rule_name
+        if check_func is None:
+             check_func = getattr(module, f'check_{rule_name}', None)
+             
         if check_func is None:
             return 'Error: Function not found'
         rule_df = check_func(df)
@@ -77,6 +81,16 @@ def get_latest_result(df, rule_name, stock_id):
         return 'No data'
     
     latest = rule_df.iloc[-1]
+    
+    # 修改：支援多重 Check 欄位
+    check_cols = [col for col in rule_df.columns if col.endswith('_check') or '_check_' in col]
+    
+    # 如果有多個 check 欄位 (針對 triple_supertrend 這種多訊號規則)
+    # 但要排除像 macd 這種單一規則運作正常的
+    if len(check_cols) > 1:
+        return {col: latest[col] for col in check_cols}
+
+    # 單一欄位回退邏輯
     check_col = next((col for col in rule_df.columns if 'check' in col), None)
     if check_col is None:
         check_col = next((col for col in rule_df.columns if col.endswith('_buy')), None)
@@ -97,6 +111,14 @@ def get_rule_display_name(rule_name):
         'impulse_macd_buy_rule': 'Impulse MACD 買入',
         'td_sequential_buy_rule': 'TD 九轉買訊',
         'bottom_fractal_higher_low': '底底高分型',
+        # New Triple Supertrend mappings (mapping from column name primarily)
+        'triple_supertrend_g1_check': '超級趨勢(標準)',
+        'triple_supertrend_g2_check': '超級趨勢(短線)',
+        'triple_supertrend_all_check': '超級趨勢(三線共振)',
+        'triple_supertrend': '超級趨勢', # Fallback for file name
+        # TD Sequential mappings for specific columns
+        'td_sequential_buy_check': 'TD 九轉買訊',
+        'td_sequential_sell_check': 'TD 九轉賣訊',
     }
     return name_mapping.get(rule_name, rule_name)
 
@@ -137,9 +159,17 @@ def main():
         for rule in rules:
             try:
                 result = get_latest_result(df, rule, stock_id)
-                rule_display_name = get_rule_display_name(rule)
-                row[rule_display_name] = result
-                print(f"  {rule_display_name}: {result}")
+                
+                # Check for dictionary result (multiple columns)
+                if isinstance(result, dict):
+                    for col_name, val in result.items():
+                        rule_display_name = get_rule_display_name(col_name)
+                        row[rule_display_name] = val
+                        print(f"  {rule_display_name}: {val}")
+                else:
+                    rule_display_name = get_rule_display_name(rule)
+                    row[rule_display_name] = result
+                    print(f"  {rule_display_name}: {result}")
             except Exception as e:
                 print(f"  {rule} 處理錯誤: {e}")
                 row[get_rule_display_name(rule)] = 'Error'
@@ -158,6 +188,9 @@ def main():
     column_order = [
         'StockID',
         'StockName',
+        '超級趨勢(標準)',
+        '超級趨勢(短線)',
+        '超級趨勢(三線共振)',
         '三陽開泰',
         '四海游龍',
         'MACD黃金交叉零軸上',
@@ -197,8 +230,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-

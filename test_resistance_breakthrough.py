@@ -485,10 +485,13 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
         # 保存圖表
         output_dir = 'output/test_charts'
         os.makedirs(output_dir, exist_ok=True)
-        chart_path = f'{output_dir}/{stock_id}_resistance_with_turning_points.png'
         
-        plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-        print(f"✅ 圖表已保存至: {chart_path}")
+        # 同時儲存為 PNG 和 SVG
+        for fmt in ['png', 'svg']:
+            chart_path = f'{output_dir}/{stock_id}_resistance_with_turning_points.{fmt}'
+            plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+            print(f"✅ 圖表已保存至: {chart_path}")
+        
         plt.show()
         
         # 輸出統計資訊

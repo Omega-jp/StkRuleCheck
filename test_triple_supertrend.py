@@ -111,74 +111,66 @@ def plot_triple_supertrend(stock_id='2330', days=180):
         if c >= o:
             rect = plt.Rectangle((date - pd.Timedelta(days=0.3), body_bottom), 
                                pd.Timedelta(days=0.6), body_height,
-                               facecolor='white', edgecolor='red', zorder=2)
+                               facecolor='white', edgecolor='red', zorder=10)
         else:
             rect = plt.Rectangle((date - pd.Timedelta(days=0.3), body_bottom), 
                                pd.Timedelta(days=0.6), body_height,
-                               facecolor='green', edgecolor='green', zorder=2)
+                               facecolor='green', edgecolor='green', zorder=10)
         ax.add_patch(rect)
 
     # 4. Plot Supertrends and Fills
     body_middle = (opens + closes) / 2
     
     # Helper to plot one ST
-    def plot_st(st_df, name, color_pair):
-        # color_pair = (up_color, down_color)
+    def plot_st(st_df, name, color_list, linestyle='-'):
+        # color_list = [up_color, down_color] (simple names or hex)
+        # Using the standard names passed: ('green', 'red'), ('lime', 'maroon'), ('darkgreen', 'darkred')
         line = st_df['Supertrend']
         direction = st_df['Direction']
         
-        # We need to plot segments based on direction to color the line correctly?
-        # Pine script draws the line: up=Green, down=Red.
-        # And fill: bodyMiddle to Line.
-        
-        # Plot Line
-        # Split into Up and Down segments
-        # (This is tricky with simple plot, let's iterate or mask)
-        
-        # Simple approach: Plot points, or segments.
-        # Let's use scatter for points (dots) or loop for line segments.
-        # Vectorized line coloring is hard in mpl without LineCollection.
-        # Let's just plot two lines, one formatting for up, one for down overlay?
-        # Better: Iterate and fill polygon.
-        
-        # Fill first
-        # Fill between BodyMiddle and Supertrend
-        # Color: Green (90 transparent) if UP, Red (90 transparent) if DOWN.
-        
-        # Create a boolean mask for fill
+        # 1. Fill Logic (remains similar, using mask)
         is_up = direction == 1
         is_down = direction == -1
         
-        # Fill Up (Green)
+        # Fill Up (Green-ish)
         ax.fill_between(dates, body_middle, line, where=is_up, 
-                        color='green', alpha=0.1, interpolate=True)
-        # Fill Down (Red)
+                        color=color_list[0], alpha=0.1, interpolate=True, zorder=0)
+        # Fill Down (Red-ish)
         ax.fill_between(dates, body_middle, line, where=is_down, 
-                        color='red', alpha=0.1, interpolate=True)
+                        color=color_list[1], alpha=0.1, interpolate=True, zorder=0)
         
-        # Plot the Line itself
-        # We can plot the whole line in gray first, then overlay?
-        # Or just plot points.
-        ax.plot(dates, line, color='gray', linewidth=0.5, alpha=0.5, linestyle=':')
+        # 2. Line Logic (Group by trend for continuous style rendering)
+        g = direction.ne(direction.shift()).cumsum()
         
-        # Draw colored segments (slower but correct)
-        # Or just mask
-        # ax.plot(dates[is_up], line[is_up], color='green', ...) -> This connects non-adjacent points! Bad.
+        # Re-implementing correctly using global integer index
+        st_df_reset = st_df.reset_index(drop=True) # 0..N index
+        g_reset = g.reset_index(drop=True)
         
-        # Correct way for simple script:
-        for i in range(1, len(dates)):
-            d1, d2 = dates[i-1], dates[i]
-            y1, y2 = line.iloc[i-1], line.iloc[i]
-            # Color based on current direction
-            c = 'green' if direction.iloc[i] == 1 else 'red'
-            ax.plot([d1, d2], [y1, y2], color=c, linewidth=1.5 if '3' in name else 1.0)
+        for gid, group in st_df_reset.groupby(g_reset):
+            d = group['Direction'].iloc[0]
+            c = color_list[0] if d == 1 else color_list[1]
+            
+            idx_start = group.index[0]
+            idx_end = group.index[-1]
+            
+            # Extend end by 1 if not last group
+            if idx_end < len(st_df_reset) - 1:
+                idx_end += 1
+                
+            # Plot
+            x_seg = dates[idx_start : idx_end+1]
+            y_seg = line.iloc[idx_start : idx_end+1]
+            
+            ax.plot(x_seg, y_seg, color=c, 
+                    linewidth=1.0 if linestyle=='-' else 0.8, 
+                    linestyle=linestyle, alpha=0.8, zorder=1)
 
-    # Plot Group 1 (Standard)
-    plot_st(st1, "ST1", ('green', 'red'))
-    # Plot Group 2 (Scalp)
-    plot_st(st2, "ST2", ('lime', 'maroon'))
-    # Plot Group 3 (Major)
-    plot_st(st3, "ST3", ('darkgreen', 'darkred'))
+    # Plot Group 1 (Standard) - Dashed
+    plot_st(st1, "ST1", ('green', 'red'), linestyle='--')
+    # Plot Group 2 (Scalp) - Dotted
+    plot_st(st2, "ST2", ('lime', 'maroon'), linestyle=':')
+    # Plot Group 3 (Major) - Solid
+    plot_st(st3, "ST3", ('darkgreen', 'darkred'), linestyle='-')
     
     # 5. Mark Signals
     # Signals are in `signals` DataFrame

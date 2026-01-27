@@ -36,19 +36,14 @@ The Supertrend indicator is calculated as follows:
 
 ## 3. Buy Signals
 
-### Signal 1: Group 1 Break (`triple_supertrend_g1_check`)
-- **Condition**: Close > Supertrend1 AND PrevClose <= PrevSupertrend1 (Trend turned Up).
-- **Marker**: 'O'
+### Signal Prioritization (One Signal per Day)
+When multiple signal conditions are met on the same day, only the strongest signal is recorded to keep the chart clean.
+**Hierarchy (High to Low)**:
+1.  **TRIPLE RESONANCE** (`all_check`)
+2.  **Standard Break (G1)** (`g1_check`)
+3.  **Scalp Break (G2)** (`g2_check`)
 
-### Signal 2: Group 2 Break (`triple_supertrend_g2_check`)
-- **Condition**: Close > Supertrend2 AND PrevClose <= PrevSupertrend2.
-- **Marker**: 'O'
-
-### Signal 3: All 3 Confirm (`triple_supertrend_all_check`)
-- **Condition**: 
-    - Trend1 is UP AND Trend2 is UP AND Trend3 is UP.
-    - **Trigger**: The current bar is the *first* bar where this condition became true (i.e., the last of the 3 lines has just been broken).
-- **Marker**: 'O'
+*Note: If `all_check` triggers, G1 and G2 are suppressed. If `G1` triggers, G2 is suppressed.*
 
 ## 4. Visual Logic (for Test Tool)
 - **Fill**:

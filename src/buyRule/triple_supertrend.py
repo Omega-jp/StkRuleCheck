@@ -46,22 +46,21 @@ def check_triple_supertrend(df: pd.DataFrame) -> pd.DataFrame:
             
         prev_row = combined.iloc[i-1]
         
-        # Signal 1: Group 1 Break (Trend -1 -> 1)
-        if row['Dir1'] == 1 and prev_row['Dir1'] == -1:
-            res['triple_supertrend_g1_check'] = 'O'
-            
-        # Signal 2: Group 2 Break (Trend -1 -> 1)
-        if row['Dir2'] == 1 and prev_row['Dir2'] == -1:
-            res['triple_supertrend_g2_check'] = 'O'
-            
-        # Signal 3: All 3 Up (Transition)
-        # Condition: All 3 are currently 1.
+        # Signal Prioritization Logic: Only mark the strongest signal if multiple occur
+        
+        # Priority 1: All 3 Up (Transition)
         all_now_up = (row['Dir1'] == 1) and (row['Dir2'] == 1) and (row['Dir3'] == 1)
-        # Condition: At least one was NOT 1 previously (meaning we just entered the "All Up" state)
         any_prev_down = (prev_row['Dir1'] == -1) or (prev_row['Dir2'] == -1) or (prev_row['Dir3'] == -1)
         
         if all_now_up and any_prev_down:
              res['triple_supertrend_all_check'] = 'O'
+        else:
+            # Priority 2: Group 1 Break (Trend -1 -> 1)
+            if row['Dir1'] == 1 and prev_row['Dir1'] == -1:
+                res['triple_supertrend_g1_check'] = 'O'
+            # Priority 3: Group 2 Break (Trend -1 -> 1)
+            elif row['Dir2'] == 1 and prev_row['Dir2'] == -1:
+                res['triple_supertrend_g2_check'] = 'O'
              
         results.append(res)
         

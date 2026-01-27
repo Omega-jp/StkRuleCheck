@@ -52,7 +52,7 @@ def setup_chinese_font():
         return False
 
 
-def debug_turning_point_execution(stock_id='2330', days=60):
+def debug_turning_point_execution(stock_id='00631L', days=60):
     """
     診斷轉折點識別算法的執行過程
     
@@ -470,7 +470,7 @@ def main():
     print("  5. 生成視覺化圖表")
     print("="*80)
     
-    stock_id = input("\n請輸入股票代碼 (預設2330): ").strip() or '2330'
+    stock_id = input("\n請輸入股票代碼 (預設00631L): ").strip() or '00631L'
     
     try:
         days_input = input("請輸入分析天數 (預設60天): ").strip()

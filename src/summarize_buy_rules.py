@@ -112,8 +112,8 @@ def get_rule_display_name(rule_name):
         'td_sequential_buy_rule': 'TD 九轉買訊',
         'bottom_fractal_higher_low': '底底高分型',
         # New Triple Supertrend mappings (mapping from column name primarily)
-        'triple_supertrend_g1_check': '超級趨勢(標準)',
-        'triple_supertrend_g2_check': '超級趨勢(短線)',
+        'triple_supertrend_g1_check': '超級趨勢(短線)',
+        'triple_supertrend_g2_check': '超級趨勢(標準)',
         'triple_supertrend_all_check': '超級趨勢(三線共振)',
         'triple_supertrend': '超級趨勢', # Fallback for file name
         # TD Sequential mappings for specific columns
@@ -188,8 +188,8 @@ def main():
     column_order = [
         'StockID',
         'StockName',
-        '超級趨勢(標準)',
         '超級趨勢(短線)',
+        '超級趨勢(標準)',
         '超級趨勢(三線共振)',
         '三陽開泰',
         '四海游龍',

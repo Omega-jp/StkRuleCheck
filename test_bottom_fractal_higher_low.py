@@ -9,7 +9,7 @@
 
 執行範例：
     python3 test_bottom_fractal_higher_low.py
-    python3 test_bottom_fractal_higher_low.py --stock 2330 --days 120 --left 2 --right 2 --tol 0.0
+    python3 test_bottom_fractal_higher_low.py --stock 00631L --days 120 --left 2 --right 2 --tol 0.0
 """
 
 import argparse
@@ -385,7 +385,7 @@ def main():
 
     else:
         while True:
-            user_input = input("請輸入股票代碼 (預設2330，輸入'y'結束，輸入'sample'跑樣本): ").strip()
+            user_input = input("請輸入股票代碼 (預設00631L，輸入'y'結束，輸入'sample'跑樣本): ").strip()
             if user_input.lower() == "y":
                 print("結束測試")
                 break
@@ -394,7 +394,7 @@ def main():
                 run_break_base_case()
                 print("\n🎉 測試完成，樣本模式")
                 continue
-            stock_id = user_input if user_input else "2330"
+            stock_id = user_input if user_input else "00631L"
             try:
                 run_real_data(stock_id, args.days, args.left, args.right, args.tol)
             except Exception as exc:

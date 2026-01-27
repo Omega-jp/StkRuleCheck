@@ -218,7 +218,7 @@ def _create_td_chart(
 
 
 def run_td_sequential_test(
-    stock_id: str = "2330",
+    stock_id: str = "00631L",
     days: int = 180,
     comparison_offset: int = 2,
     setup_length: int = 9,
@@ -271,12 +271,12 @@ def main() -> None:
     print("TD Sequential (九轉) 測試工具")
     print("=" * 50)
     while True:
-        stock_id = input("\n請輸入股票代碼 (預設2330,輸入 quit 離開): ").strip()
+        stock_id = input("\n請輸入股票代碼 (預設00631L,輸入 quit 離開): ").strip()
         if stock_id.lower() == "quit":
             print("程式結束")
             break
         if not stock_id:
-            stock_id = "2330"
+            stock_id = "00631L"
 
         days_input = input("請輸入顯示天數 (預設180): ").strip()
         try:

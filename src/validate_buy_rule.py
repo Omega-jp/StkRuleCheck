@@ -641,7 +641,7 @@ def validate_buy_rule(stock_id):
     rule_df.to_csv(f'{output_dir}/{stock_id}_D_Rule.csv', index=False)
     print(f'已生成規則文件: {output_dir}/{stock_id}_D_Rule.csv')
 
-def debug_csv_structure(stock_id='2330', data_type='D'):
+def debug_csv_structure(stock_id='00631L', data_type='D'):
     """調試CSV文件結構"""
     file_path = f'Data/kbar/{stock_id}_{data_type}.csv'
     if not os.path.exists(file_path):

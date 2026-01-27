@@ -82,7 +82,7 @@ def diagnose_trendlines(stock_id='00631l', days=360):
             print(f"3. 時間跨度不足（長期線需要 >= 180 天）")
             print(f"\n建議：")
             print(f"- 增加天數參數（試試 500-720 天）")
-            print(f"- 測試其他股票（如 2330）")
+            print(f"- 測試其他股票（如 00631L）")
             return
         
         # 顯示趨勢線詳細資訊

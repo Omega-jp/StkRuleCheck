@@ -30,8 +30,8 @@ The Supertrend indicator is calculated as follows:
 
 | Group | Factor | ATR Period | Output Column suffix | Display Name |
 | :--- | :--- | :--- | :--- | :--- |
-| **Group 1** | 2.0 | 11 | `_g1_check` | 超級趨勢(標準) |
-| **Group 2** | 1.0 | 10 | `_g2_check` | 超級趨勢(短線) |
+| **Group 1** | 1.0 | 10 | `_g1_check` | 超級趨勢(短線) |
+| **Group 2** | 2.0 | 11 | `_g2_check` | 超級趨勢(標準) |
 | **Group 3** | 3.0 | 12 | `_all_check` | 超級趨勢(三線共振) |
 
 ## 3. Buy Signals
@@ -40,10 +40,10 @@ The Supertrend indicator is calculated as follows:
 When multiple signal conditions are met on the same day, only the strongest signal is recorded to keep the chart clean.
 **Hierarchy (High to Low)**:
 1.  **TRIPLE RESONANCE** (`all_check`)
-2.  **Standard Break (G1)** (`g1_check`)
-3.  **Scalp Break (G2)** (`g2_check`)
+2.  **Standard Break (G2)** (`g2_check`)
+3.  **Scalp Break (G1)** (`g1_check`)
 
-*Note: If `all_check` triggers, G1 and G2 are suppressed. If `G1` triggers, G2 is suppressed.*
+*Note: If `all_check` triggers, G1 and G2 are suppressed. If `G2` (Standard) triggers, G1 (Scalp) is suppressed.*
 
 ## 4. Visual Logic (for Test Tool)
 - **Fill**:

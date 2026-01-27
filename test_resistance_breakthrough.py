@@ -77,7 +77,7 @@ def find_breakthrough_resistance_lines(resistance_results, resistance_data, rece
     return breakthrough_lines
 
 
-def simple_resistance_test(stock_id='2330', days=180):
+def simple_resistance_test(stock_id='00631L', days=180):
     """
     簡化的壓力線測試 - 顯示被突破的壓力線與水平壓力線
     """
@@ -531,14 +531,14 @@ def main():
     print("=" * 65)
     
     while True:
-        stock_id = input("\n請輸入股票代碼 (預設2330，輸入'quit'退出): ").strip()
+        stock_id = input("\n請輸入股票代碼 (預設00631L，輸入'quit'退出): ").strip()
         
         if stock_id.lower() == 'quit':
             print("程式結束")
             break
         
         if not stock_id:
-            stock_id = '2330'
+            stock_id = '00631L'
         
         try:
             days_input = input("請輸入顯示天數 (預設180天): ").strip()

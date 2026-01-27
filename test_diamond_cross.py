@@ -201,7 +201,7 @@ def main() -> None:
         if stock_id_in.lower() == "quit":
             print("程式結束")
             break
-        stock_id = None if stock_id_in.lower() == "sample" else stock_id_in or "2330"
+        stock_id = None if stock_id_in.lower() == "sample" else stock_id_in or "00631L"
 
         days_input = input("請輸入顯示天數 (預設180): ").strip()
         try:

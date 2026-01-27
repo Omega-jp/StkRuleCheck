@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 
-def test_turning_point_identification(stock_id='2330', days=180, include_detailed_debug=False):
+def test_turning_point_identification(stock_id='00631L', days=180, include_detailed_debug=False):
     """
     測試轉折點識別功能
     """
@@ -428,14 +428,14 @@ def main():
     print("並包含24-25區間震蕩問題的詳細診斷功能")
     
     while True:
-        stock_id = input("\n請輸入股票代碼 (預設2330，輸入'quit'退出): ").strip()
+        stock_id = input("\n請輸入股票代碼 (預設00631L，輸入'quit'退出): ").strip()
         
         if stock_id.lower() == 'quit':
             print("程式結束")
             break
         
         if not stock_id:
-            stock_id = '2330'
+            stock_id = '00631L'
         
         try:
             days_input = input("請輸入顯示天數 (預設180天): ").strip()

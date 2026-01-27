@@ -433,7 +433,7 @@ def print_buy_signal_stats(buy_signals):
         print(f"   成交量比率: {best_signal['volume_ratio']:.2f}x")
 
 
-def descending_trendline_test(stock_id='2330', days=360):
+def descending_trendline_test(stock_id='00631L', days=360):
     """下降趨勢線突破測試"""
     print(f"\n{'='*70}")
     print(f"下降趨勢線突破買入規則測試：{stock_id}")
@@ -517,14 +517,14 @@ def main():
     print("=" * 70)
     
     while True:
-        stock_id = input("\n請輸入股票代碼 (預設2330，輸入'quit'退出): ").strip()
+        stock_id = input("\n請輸入股票代碼 (預設00631L，輸入'quit'退出): ").strip()
         
         if stock_id.lower() == 'quit':
             print("程式結束")
             break
         
         if not stock_id:
-            stock_id = '2330'
+            stock_id = '00631L'
         
         try:
             days_input = input("請輸入顯示天數 (預設360天，建議至少300天): ").strip()

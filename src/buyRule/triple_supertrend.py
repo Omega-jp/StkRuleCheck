@@ -5,17 +5,17 @@ def check_triple_supertrend(df: pd.DataFrame) -> pd.DataFrame:
     """
     Check Triple Supertrend Buy Signals
     Returns DataFrame with 3 check columns:
-    - triple_supertrend_g1_check: Standard (ATR 11, Factor 2.0) Break
-    - triple_supertrend_g2_check: Scalping (ATR 10, Factor 1.0) Break
+    - triple_supertrend_g1_check: Scalping (ATR 10, Factor 1.0) Break
+    - triple_supertrend_g2_check: Standard (ATR 11, Factor 2.0) Break
     - triple_supertrend_all_check: All 3 Systems Up (Signal at the transition)
     """
     results = []
     
     # Calculate 3 Supertrends
-    # Group 1: Standard (11, 2.0)
-    st1 = calculate_supertrend(df, period=11, factor=2.0)
-    # Group 2: Scalping (10, 1.0)
-    st2 = calculate_supertrend(df, period=10, factor=1.0)
+    # Group 1: Scalping (10, 1.0)
+    st1 = calculate_supertrend(df, period=10, factor=1.0)
+    # Group 2: Standard (11, 2.0)
+    st2 = calculate_supertrend(df, period=11, factor=2.0)
     # Group 3: Major (12, 3.0)
     st3 = calculate_supertrend(df, period=12, factor=3.0)
     
@@ -55,12 +55,12 @@ def check_triple_supertrend(df: pd.DataFrame) -> pd.DataFrame:
         if all_now_up and any_prev_down:
              res['triple_supertrend_all_check'] = 'O'
         else:
-            # Priority 2: Group 1 Break (Trend -1 -> 1)
-            if row['Dir1'] == 1 and prev_row['Dir1'] == -1:
-                res['triple_supertrend_g1_check'] = 'O'
-            # Priority 3: Group 2 Break (Trend -1 -> 1)
-            elif row['Dir2'] == 1 and prev_row['Dir2'] == -1:
+            # Priority 2: Group 2 Break (Standard, Trend -1 -> 1)
+            if row['Dir2'] == 1 and prev_row['Dir2'] == -1:
                 res['triple_supertrend_g2_check'] = 'O'
+            # Priority 3: Group 1 Break (Scalp, Trend -1 -> 1)
+            elif row['Dir1'] == 1 and prev_row['Dir1'] == -1:
+                res['triple_supertrend_g1_check'] = 'O'
              
         results.append(res)
         

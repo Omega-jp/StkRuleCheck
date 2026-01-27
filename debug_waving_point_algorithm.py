@@ -18,7 +18,7 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 
-def debug_waving_point_execution(stock_id='2330', days=120):
+def debug_waving_point_execution(stock_id='00631L', days=120):
     """
     診斷趨勢波識別算法的執行過程
     """
@@ -494,7 +494,7 @@ def main():
     print("=" * 80)
     print("診斷 waving_point_identification.py 的執行邏輯")
     
-    stock_id = input("\n請輸入股票代碼 (預設2330): ").strip() or '2330'
+    stock_id = input("\n請輸入股票代碼 (預設00631L): ").strip() or '00631L'
     
     try:
         days_input = input("請輸入分析天數 (預設120天): ").strip()

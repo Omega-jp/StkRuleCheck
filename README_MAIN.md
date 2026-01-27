@@ -42,6 +42,7 @@
 2. 配置股票清單文件 `config/stklist.cfg`：
    ```
    股票代碼,股票名稱
+   00631L,元大台灣50正2
    2330,台積電
    2317,鴻海
    ...
@@ -64,14 +65,18 @@ python main.py
 ```
 StkRuleCheck/
 ├── Data/kbar/              # K線數據文件
+│   ├── 00631L_D.csv       # 日K數據
+│   ├── 00631L_W.csv       # 週K數據
 │   ├── 2330_D.csv         # 日K數據
 │   ├── 2330_W.csv         # 週K數據
 │   └── ...
 ├── output/
 │   ├── buy_rules/         # 規則驗證結果
+│   │   ├── 00631L_D_Rule.csv
 │   │   ├── 2330_D_Rule.csv
 │   │   └── ...
 │   ├── chart/             # K線圖表
+│   │   ├── 00631L_validation_chart.png
 │   │   ├── 2330_validation_chart.png
 │   │   └── ...
 │   └── buy_rules_summary.csv  # 總結報表

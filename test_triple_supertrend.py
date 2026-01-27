@@ -18,7 +18,7 @@ from src.validate_buy_rule import load_stock_data
 from src.buyRule.triple_supertrend import check_triple_supertrend
 from src.baseRule.supertrend import calculate_supertrend
 
-def plot_triple_supertrend(stock_id='2330', days=180):
+def plot_triple_supertrend(stock_id='00631L', days=180):
     print(f"\n{'='*60}")
     print(f"Triple Supertrend Test: {stock_id}")
     print(f"{'='*60}")
@@ -34,10 +34,10 @@ def plot_triple_supertrend(stock_id='2330', days=180):
     # 2. Calculate Indicators (Re-calculate for plotting to get lines)
     # The buy rule returns checks, but we need the actual lines for plotting
     
-    # Group 1 (Standard)
-    st1 = calculate_supertrend(recent_df, 11, 2.0)
-    # Group 2 (Scalp)
-    st2 = calculate_supertrend(recent_df, 10, 1.0)
+    # Group 1 (Scalp)
+    st1 = calculate_supertrend(recent_df, 10, 1.0)
+    # Group 2 (Standard)
+    st2 = calculate_supertrend(recent_df, 11, 2.0)
     # Group 3 (Major)
     st3 = calculate_supertrend(recent_df, 12, 3.0)
     
@@ -72,37 +72,14 @@ def plot_triple_supertrend(stock_id='2330', days=180):
     lows = recent_df['Low']
     
     col_up = 'red'
-    col_down = 'green'
+    col_down = 'blue' # Changed from green to avoid confusion
     
-    # Draw simple candles
-    width = 0.6
-    width2 = 0.05
-    
-    up = closes >= opens
-    down = ~up
-    
-    # High-Low lines
-    ax.vlines(dates[up], lows[up], highs[up], color=col_up, linewidth=1)
-    ax.vlines(dates[down], lows[down], highs[down], color=col_down, linewidth=1)
-    
-    # Bodies
-    # Up: white face, red edge
-    # Down: green face, green edge
-    # Matplotlib dates handling needs conversion if using plot_date, but standard plot with index works if index is DatetimeIndex??
-    # Actually standard plot with datetime index works fine usually.
-    # To draw rectangles we might need numeric dates. Let's use simple iterating plot for robustness similar to previous script or vlines/bar.
-    # Using bar for bodies
-    # Shift index to numeric for bar width control
-    
-    # Wait, let's stick to the previous script's method or simplified 'plot'
-    # Use simple HLOC plot? No, let's use the helper provided in previous script or just manual loop if small data.
-    # 180 days is small.
-    
+    # 4. Draw Candles and Supertrends
     for i, date in enumerate(dates):
         o, c, h, l = opens.iloc[i], closes.iloc[i], highs.iloc[i], lows.iloc[i]
         
-        # Line
-        ax.plot([date, date], [l, h], color='black', linewidth=0.8, alpha=0.5)
+        # Shadow Line (Single black line)
+        ax.plot([date, date], [l, h], color='black', linewidth=0.8, alpha=0.5, zorder=5)
         
         # Body
         body_bottom = min(o, c)
@@ -111,88 +88,84 @@ def plot_triple_supertrend(stock_id='2330', days=180):
         if c >= o:
             rect = plt.Rectangle((date - pd.Timedelta(days=0.3), body_bottom), 
                                pd.Timedelta(days=0.6), body_height,
-                               facecolor='white', edgecolor='red', zorder=10)
+                               facecolor='white', edgecolor=col_up, zorder=10)
         else:
             rect = plt.Rectangle((date - pd.Timedelta(days=0.3), body_bottom), 
                                pd.Timedelta(days=0.6), body_height,
-                               facecolor='green', edgecolor='green', zorder=10)
+                               facecolor=col_down, edgecolor=col_down, zorder=10)
         ax.add_patch(rect)
 
-    # 4. Plot Supertrends and Fills
-    body_middle = (opens + closes) / 2
+    # Calculate 3 Supertrends
+    line1 = st1['Supertrend']
+    line2 = st2['Supertrend']
+    line3 = st3['Supertrend']
+    dir1 = st1['Direction']
     
-    # Helper to plot one ST
-    def plot_st(st_df, name, color_list, linestyle='-'):
-        # color_list = [up_color, down_color] (simple names or hex)
-        # Using the standard names passed: ('green', 'red'), ('lime', 'maroon'), ('darkgreen', 'darkred')
-        line = st_df['Supertrend']
-        direction = st_df['Direction']
-        
-        # 1. Fill Logic (remains similar, using mask)
-        is_up = direction == 1
-        is_down = direction == -1
-        
-        # Fill Up (Green-ish)
-        ax.fill_between(dates, body_middle, line, where=is_up, 
-                        color=color_list[0], alpha=0.1, interpolate=True, zorder=0)
-        # Fill Down (Red-ish)
-        ax.fill_between(dates, body_middle, line, where=is_down, 
-                        color=color_list[1], alpha=0.1, interpolate=True, zorder=0)
-        
-        # 2. Line Logic (Group by trend for continuous style rendering)
-        g = direction.ne(direction.shift()).cumsum()
-        
-        # Re-implementing correctly using global integer index
-        st_df_reset = st_df.reset_index(drop=True) # 0..N index
-        g_reset = g.reset_index(drop=True)
-        
-        for gid, group in st_df_reset.groupby(g_reset):
-            d = group['Direction'].iloc[0]
-            c = color_list[0] if d == 1 else color_list[1]
-            
-            idx_start = group.index[0]
-            idx_end = group.index[-1]
-            
-            # Extend end by 1 if not last group
-            if idx_end < len(st_df_reset) - 1:
-                idx_end += 1
-                
-            # Plot
-            x_seg = dates[idx_start : idx_end+1]
-            y_seg = line.iloc[idx_start : idx_end+1]
-            
-            ax.plot(x_seg, y_seg, color=c, 
-                    linewidth=1.0 if linestyle=='-' else 0.8, 
-                    linestyle=linestyle, alpha=0.8, zorder=1)
+    # Fills between lines (G1-G2, G2-G3) to show the "envelope"
+    # Logic: Fill green if G2 (Std) is UP, red if G2 is DOWN
+    is_up = st2['Direction'] == 1
+    is_down = st2['Direction'] == -1
+    
+    ax.fill_between(dates, line1, line2, where=is_up, color='green', alpha=0.08, zorder=0)
+    ax.fill_between(dates, line1, line2, where=is_down, color='red', alpha=0.08, zorder=0)
+    
+    ax.fill_between(dates, line2, line3, where=is_up, color='green', alpha=0.05, zorder=0)
+    ax.fill_between(dates, line2, line3, where=is_down, color='red', alpha=0.05, zorder=0)
 
-    # Plot Group 1 (Standard) - Dashed
-    plot_st(st1, "ST1", ('green', 'red'), linestyle='--')
-    # Plot Group 2 (Scalp) - Dotted
-    plot_st(st2, "ST2", ('lime', 'maroon'), linestyle=':')
-    # Plot Group 3 (Major) - Solid
-    plot_st(st3, "ST3", ('darkgreen', 'darkred'), linestyle='-')
+    # Helper to plot one ST line continuously
+    def draw_continuous_line(dates, line_series, direction_series, color_up, color_down, label, linestyle='-', linewidth=1.0):
+        g = direction_series.ne(direction_series.shift()).cumsum()
+        for gid, group in line_series.groupby(g):
+            d = direction_series.loc[group.index[0]]
+            c = color_up if d == 1 else color_down
+            
+            idx_start = line_series.index.get_loc(group.index[0])
+            idx_end = line_series.index.get_loc(group.index[-1])
+            
+            # Plot segment
+            ax.plot(dates[idx_start:idx_end+1], line_series.iloc[idx_start:idx_end+1], 
+                    color=c, linestyle=linestyle, linewidth=linewidth, alpha=0.9, zorder=12)
+            
+            # Connect to next segment if exists
+            if idx_end < len(line_series) - 1:
+                next_d = direction_series.iloc[idx_end + 1]
+                next_c = color_up if next_d == 1 else color_down
+                
+                # Vertical line at the transition (connection line)
+                # Use next_c (the new trend color) as requested
+                ax.plot([dates[idx_end], dates[idx_end+1]], 
+                        [line_series.iloc[idx_end], line_series.iloc[idx_end+1]], 
+                        color=next_c, linestyle=linestyle, linewidth=linewidth, alpha=0.9, zorder=12)
+
+    # Plot the 3 lines with distinct styles/labels
+    draw_continuous_line(dates, line1, dir1, 'lime', 'maroon', 'ST1 (Scalp)', linestyle=':', linewidth=0.8)
+    draw_continuous_line(dates, line2, st2['Direction'], 'green', 'red', 'ST2 (Std)', linestyle='--', linewidth=1.0)
+    draw_continuous_line(dates, line3, st3['Direction'], 'darkgreen', 'darkred', 'ST3 (Major)', linestyle='-', linewidth=1.2)
     
+    # Dummy plots for legend
+    ax.plot([], [], color='green', linestyle=':', label='G1: Scalp (10, 1.0)')
+    ax.plot([], [], color='green', linestyle='--', label='G2: Standard (11, 2.0)')
+    ax.plot([], [], color='green', linestyle='-', label='G3: Major (12, 3.0)')
+    ax.plot([], [], color='red', linestyle='-', label='Down Trend (Red Fill)')
+
     # 5. Mark Signals
-    # Signals are in `signals` DataFrame
-    # triple_supertrend_g1_check, etc.
-    
-    # G1: Standard (Triangle Up)
-    g1_idx = signals[signals['triple_supertrend_g1_check'] == 'O'].index
-    if len(g1_idx) > 0:
-        ax.scatter(g1_idx, lows.loc[g1_idx]*0.99, marker='^', color='blue', s=60, label='Std Break', zorder=10)
-        
-    # G2: Short (Small dot)
+    # G2: Standard (Triangle Up)
     g2_idx = signals[signals['triple_supertrend_g2_check'] == 'O'].index
     if len(g2_idx) > 0:
-        ax.scatter(g2_idx, lows.loc[g2_idx]*0.995, marker='.', color='purple', s=40, label='Scalp Break', zorder=10)
+        ax.scatter(g2_idx, lows.loc[g2_idx]*0.99, marker='^', color='blue', s=80, label='Std Break (G2)', zorder=15)
+        
+    # G1: Scalp (Small dot)
+    g1_idx = signals[signals['triple_supertrend_g1_check'] == 'O'].index
+    if len(g1_idx) > 0:
+        ax.scatter(g1_idx, lows.loc[g1_idx]*0.995, marker='.', color='purple', s=50, label='Scalp Break (G1)', zorder=15)
         
     # All: Resonance (Big Star)
     all_idx = signals[signals['triple_supertrend_all_check'] == 'O'].index
     if len(all_idx) > 0:
-        ax.scatter(all_idx, lows.loc[all_idx]*0.98, marker='*', color='gold', edgecolor='black', s=150, label='TRIPLE RESONANCE', zorder=20)
+        ax.scatter(all_idx, lows.loc[all_idx]*0.98, marker='*', color='gold', edgecolor='black', s=200, label='TRIPLE RESONANCE', zorder=20)
         
-    plt.title(f"{stock_id} Triple Supertrend Strategy")
-    plt.legend()
+    plt.title(f"{stock_id} Triple Supertrend Strategy Visualization")
+    plt.legend(loc='best', framealpha=0.5)
     plt.grid(True, alpha=0.3)
     
     # Save
@@ -205,9 +178,9 @@ def plot_triple_supertrend(stock_id='2330', days=180):
 
 def main():
     while True:
-        sid = input("Stock ID (default 2330, q to quit): ").strip()
+        sid = input("Stock ID (default 00631L, q to quit): ").strip()
         if sid.lower() == 'q': break
-        if not sid: sid = '2330'
+        if not sid: sid = '00631L'
         plot_triple_supertrend(sid)
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
 4. 輸出圖表：K 線 + 均線 + 底分型
 
 執行範例：
-    python3 debug_bottom_fractal_algorithm.py --stock 2330 --days 120 --left 2 --right 2 --tol 0.0
+    python3 debug_bottom_fractal_algorithm.py --stock 00631L --days 120 --left 2 --right 2 --tol 0.0
 """
 
 import argparse

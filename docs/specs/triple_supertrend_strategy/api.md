@@ -15,9 +15,9 @@
 ### `check_triple_supertrend(df: pd.DataFrame) -> pd.DataFrame`
 - **Input**: DataFrame with Open, High, Low, Close.
 - **Output**: DataFrame with same index, containing columns:
-    - `triple_supertrend_g1_check`: 'O' or ''
-    - `triple_supertrend_g2_check`: 'O' or ''
-    - `triple_supertrend_all_check`: 'O' or ''
+    - `triple_supertrend_g1_check`: Scalping (ATR 10, Factor 1.0) Break
+    - `triple_supertrend_g2_check`: Standard (ATR 11, Factor 2.0) Break
+    - `triple_supertrend_all_check`: All 3 Systems Up (Signal at the transition)
 
 ## 3. Summary Script Update
 **Path**: `src/summarize_buy_rules.py`

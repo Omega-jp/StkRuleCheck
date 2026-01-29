@@ -492,7 +492,7 @@ def create_simple_chart(stock_id, recent_df, turning_points_df, resistance_resul
             plt.savefig(chart_path, dpi=300, bbox_inches='tight')
             print(f"✅ 圖表已保存至: {chart_path}")
         
-        plt.show()
+        plt.close()
         
         # 輸出統計資訊
         print(f"\n📊 統計資訊：")

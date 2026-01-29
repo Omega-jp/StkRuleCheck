@@ -169,11 +169,7 @@ def _plot_chart(stock_id: str, df: pd.DataFrame, result_df: pd.DataFrame) -> Non
     path = os.path.join(out_dir, f"{stock_id}_diamond_cross.png")
     plt.savefig(path, dpi=300, bbox_inches="tight")
     print(f"✅ 圖表已保存: {path}")
-    backend = plt.get_backend().lower()
-    if "agg" not in backend:
-        plt.show()
-    else:
-        plt.close(fig)
+    plt.close(fig)
 
 
 def _run_test(stock_id: Optional[str] = None, days: int = 180) -> Tuple[pd.DataFrame, List[str]]:

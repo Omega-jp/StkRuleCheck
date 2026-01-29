@@ -210,11 +210,7 @@ def _create_td_chart(
     print(f"✅ 圖表已保存至: {chart_file}")
 
     # 部分環境 (如 CLI 測試) 使用 Agg backend,直接 show 會出現警告
-    backend = plt.get_backend().lower()
-    if "agg" not in backend:
-        plt.show()
-    else:
-        plt.close()
+    plt.close()
 
 
 def run_td_sequential_test(

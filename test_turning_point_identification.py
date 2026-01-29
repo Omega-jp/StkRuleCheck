@@ -411,7 +411,7 @@ def create_turning_point_chart(stock_id, recent_df, turning_points_df, days):
         
         plt.savefig(chart_path, dpi=300, bbox_inches='tight')
         print(f"✅ 轉折點測試圖表已保存至: {chart_path}")
-        plt.show()
+        plt.close()
         
     except Exception as e:
         print(f"❌ 創建圖表時發生錯誤: {e}")

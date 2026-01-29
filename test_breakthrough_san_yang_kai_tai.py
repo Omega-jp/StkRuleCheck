@@ -225,11 +225,7 @@ def _create_chart(
     plt.savefig(chart_file, dpi=300, bbox_inches="tight")
     print(f"✅ 圖表已保存至: {chart_file}")
 
-    backend = plt.get_backend().lower()
-    if "agg" not in backend:
-        plt.show()
-    else:
-        plt.close()
+    plt.close()
 
 
 def _run_with_dataframe(

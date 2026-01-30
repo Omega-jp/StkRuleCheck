@@ -111,6 +111,9 @@ def get_rule_display_name(rule_name):
         'impulse_macd_buy_rule': 'Impulse MACD 買入',
         'td_sequential_buy_rule': 'TD 九轉買訊',
         'bottom_fractal_higher_low': '底底高分型',
+        # Momentum Shift mappings
+        'ms_buy_check': '動能轉移(買)',
+        'ms_sell_check': '動能轉移(賣)',
         # New Triple Supertrend mappings (mapping from column name primarily)
         'triple_supertrend_g1_check': '超級趨勢(短線)',
         'triple_supertrend_g2_check': '超級趨勢(標準)',
@@ -200,7 +203,10 @@ def main():
         '下降趨勢線突破',
         'Impulse MACD 買入',
         'TD 九轉買訊',
+        'TD 九轉賣訊',
         '底底高分型',
+        '動能轉移(買)',
+        '動能轉移(賣)',
     ]
     
     # 確保所有欄位都存在，如果不存在則添加（無訊號保持空白）

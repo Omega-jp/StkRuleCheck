@@ -133,7 +133,7 @@ def compute_momentum_shift(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_calc
 
-def check_momentum_shift_buy_rule(df: pd.DataFrame) -> pd.DataFrame:
+def check_momentum_shift(df: pd.DataFrame) -> pd.DataFrame:
     """
     相容於系統現行 validate_buy_rule 的 wrapper。
     """

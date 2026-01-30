@@ -48,7 +48,11 @@ def test_momentum_shift_logic(stock_id='2330', days=120):
     plt.subplot(2, 1, 1)
     dates = results.index
     
-    # 繪製 K 棒 (簡化版)
+    # B. 繪製 5MA
+    if 'ma5' in results.columns:
+        plt.plot(dates, results['ma5'], color='blue', linewidth=1, label='5MA', alpha=0.6)
+
+    # C. 繪製 K 棒 (簡化版)
     for i in range(len(results)):
         row = results.iloc[i]
         color = 'red' if row['Close'] >= row['Open'] else 'green'
@@ -66,12 +70,12 @@ def test_momentum_shift_logic(stock_id='2330', days=120):
             color = 'green' if row['ms_type'] == "Bullish" else 'red'
             # 繪製當天的水平線段 (從當天到隔天)
             plt.hlines(row['ms_level'], xmin=dates[i], xmax=dates[i+1], 
-                      colors=color, linewidth=2.5, alpha=0.8)
+                      colors=color, linewidth=1.5, alpha=0.8)
             
             # 如果隔天跳階了，繪製一條虛擬垂直線連起來 (可選)
             if not np.isnan(next_row['ms_level']) and next_row['ms_level'] != row['ms_level']:
                plt.vlines(dates[i+1], row['ms_level'], next_row['ms_level'], 
-                          colors=color, linestyles=':', alpha=0.5)
+                          colors=color, linestyles=':', linewidth=1.0, alpha=0.5)
 
     # 最後一天的 Level 補一個短線
     last_idx = len(results) - 1
@@ -80,7 +84,7 @@ def test_momentum_shift_logic(stock_id='2330', days=120):
         color = 'green' if last_row['ms_type'] == "Bullish" else 'red'
         # 往後延一點點點方便看見 (xmin == xmax 在有些 plt 版本可能不顯示，所以加一點位移)
         plt.hlines(last_row['ms_level'], xmin=dates[last_idx], xmax=dates[last_idx] + pd.Timedelta(hours=12), 
-                  colors=color, linewidth=2.5, alpha=0.8)
+                  colors=color, linewidth=1.5, alpha=0.8)
 
     # 標記買進訊號
     buy_signals = results[results['ms_buy_signal'] == 'O']
@@ -111,13 +115,30 @@ def test_momentum_shift_logic(stock_id='2330', days=120):
     plt.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    output_path = f'output/test_charts/{stock_id}_momentum_shift.png'
+    output_path = f'output/test_charts/{stock_id}_momentum_shift.svg'
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path)
     print(f"✅ 測試圖表已存至: {output_path}")
     plt.close()
 
 if __name__ == "__main__":
-    # 測試多種股票，模型已自動並行計算
-    test_momentum_shift_logic('0050')
-    test_momentum_shift_logic('00631L')
+    import argparse
+    parser = argparse.ArgumentParser(description='Momentum Shift 系統測試與視覺化')
+    parser.add_argument('stock_id', nargs='?', help='股票代碼 (例如: 2330)')
+    parser.add_argument('--days', type=int, default=120, help='查看過去多少天的資料 (預設: 120)')
+    args = parser.parse_args()
+    
+    if args.stock_id:
+        test_momentum_shift_logic(args.stock_id, args.days)
+    else:
+        print("💡 未指定股票代碼，進入互動模式 (輸入 'q' 退出)")
+        while True:
+            stock_id = input("\n請輸入股票代碼 (例如 0050, 00922, 2330): ").strip()
+            if stock_id.lower() == 'q':
+                break
+            if not stock_id:
+                print("💡 執行預設測試：0050")
+                test_momentum_shift_logic('0050', args.days)
+                continue
+                
+            test_momentum_shift_logic(stock_id, args.days)

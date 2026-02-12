@@ -2,6 +2,7 @@
 import os
 import importlib.util
 from src.validate_buy_rule import load_stock_data
+from src.analysis.trend_analyzer import calculate_trend, TrendType
 
 def get_buy_rules():
     rules = []
@@ -159,6 +160,16 @@ def main():
             'StockName': stock_names.get(stock_id, "")
         }
         
+        # Calculate Trend
+        try:
+            trend_result = calculate_trend(df, stock_id)
+            row['Trend'] = trend_result.status.value
+            # row['TrendDetail'] = trend_result.details # Optional: Add details if needed
+            print(f"  Trend: {trend_result.status.value}")
+        except Exception as e:
+            print(f"  Trend Calculation Error: {e}")
+            row['Trend'] = 'Error'
+        
         for rule in rules:
             try:
                 result = get_latest_result(df, rule, stock_id)
@@ -191,6 +202,7 @@ def main():
     column_order = [
         'StockID',
         'StockName',
+        'Trend',
         '超級趨勢(短線)',
         '超級趨勢(標準)',
         '超級趨勢(三線共振)',
@@ -217,6 +229,8 @@ def main():
     # 重新排序欄位
     other_cols = [col for col in summary_df.columns if col not in column_order]
     summary_df = summary_df[column_order + other_cols]
+    
+    # ... (previous code)
     
     output_dir = 'output'
     os.makedirs(output_dir, exist_ok=True)

@@ -123,19 +123,30 @@ def _plot_candles(ax: plt.Axes, df: pd.DataFrame) -> None:
             l = lows.iloc[i]
             c = closes.iloc[i]
             is_up = c >= o
-            ax.plot([date, date], [l, h], color="black", linewidth=0.8, alpha=0.8)
+            
+            # 影線 (Z-Order 1) - 黑色
+            ax.plot([date, date], [l, h], color="black", linewidth=0.8, zorder=1)
+            
             body_bottom = min(o, c)
             body_height = abs(c - o) or 0.01
-            color = "white" if is_up else "green"
-            edge = "red" if is_up else "green"
+            
+            # 上漲: 紅框白底 (或紅底), 下跌: 綠框綠底
+            # 根據規格書: 上漲=Red(#FF0000) 實體可為空心或白色填充, 邊框紅色
+            #            下跌=Green(#008000) 實體填充綠色, 邊框綠色
+            #            實體 Alpha=1.0, Z-Order=2
+            
+            facecolor = "white" if is_up else "#008000"
+            edgecolor = "#FF0000" if is_up else "#008000"
+            
             rect = plt.Rectangle(
                 (date - bar_width / 2, body_bottom),
                 bar_width,
                 body_height,
-                facecolor=color,
-                edgecolor=edge,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
                 linewidth=1.0,
-                alpha=0.9,
+                alpha=1.0,
+                zorder=2,
             )
             ax.add_patch(rect)
     else:
@@ -151,7 +162,8 @@ def _create_td_chart(
 ) -> None:
     """繪製價格 + 訊號 + setup count 圖表。"""
     _select_font()
-    plt.figure(figsize=(15, 9))
+    # 規格建議 figsize=(18, 8)
+    plt.figure(figsize=(18, 8))
 
     ax_price = plt.subplot(2, 1, 1)
     _plot_candles(ax_price, price_df)
@@ -205,9 +217,18 @@ def _create_td_chart(
 
     output_dir = "output/test_charts"
     os.makedirs(output_dir, exist_ok=True)
-    chart_file = os.path.join(output_dir, f"{stock_id}_td_sequential.png")
-    plt.savefig(chart_file, dpi=300, bbox_inches="tight")
-    print(f"✅ 圖表已保存至: {chart_file}")
+    
+    # 輸出 SVG 格式,並同時保留 PNG 以便快速檢視
+    # 規格建議 dpi=200
+    base_filename = f"{stock_id}_td_sequential"
+    
+    svg_file = os.path.join(output_dir, f"{base_filename}.svg")
+    plt.savefig(svg_file, dpi=200, bbox_inches="tight")
+    print(f"✅ 圖表已保存至: {svg_file}")
+
+    png_file = os.path.join(output_dir, f"{base_filename}.png")
+    plt.savefig(png_file, dpi=200, bbox_inches="tight")
+    print(f"✅ 圖表已保存至: {png_file}")
 
     # 部分環境 (如 CLI 測試) 使用 Agg backend,直接 show 會出現警告
     plt.close()

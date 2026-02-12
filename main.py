@@ -30,10 +30,10 @@ def run_kbar_collector():
     try:
         from src.data_initial.kbar_collector import collect_and_save_kbars
         collect_and_save_kbars()
-        print("✓ K線數據收集完成")
+        print("[v] K線數據收集完成")
         return True
     except Exception as e:
-        print(f"✗ K線數據收集失敗: {e}")
+        print(f"[x] K線數據收集失敗: {e}")
         return False
 
 def run_append_indicator():
@@ -42,10 +42,10 @@ def run_append_indicator():
     try:
         from src.data_initial.append_indicator import append_indicators_to_csv
         append_indicators_to_csv()
-        print("✓ 技術指標添加完成")
+        print("[v] 技術指標添加完成")
         return True
     except Exception as e:
-        print(f"✗ 技術指標添加失敗: {e}")
+        print(f"[x] 技術指標添加失敗: {e}")
         return False
 
 def run_validate_buy_rule():
@@ -72,10 +72,10 @@ def run_validate_buy_rule():
             except Exception as e:
                 print(f"處理股票 {stock_id} 時發生錯誤: {e}")
         
-        print(f"\n✓ 買入規則驗證完成，成功處理 {success_count}/{len(stock_ids)} 支股票")
+        print(f"\n[v] 買入規則驗證完成，成功處理 {success_count}/{len(stock_ids)} 支股票")
         return True
     except Exception as e:
-        print(f"✗ 買入規則驗證失敗: {e}")
+        print(f"[x] 買入規則驗證失敗: {e}")
         return False
 
 def run_summarize_buy_rules():
@@ -84,10 +84,10 @@ def run_summarize_buy_rules():
     try:
         from src.summarize_buy_rules import main as summarize_main
         summarize_main()
-        print("✓ 買入規則總結完成")
+        print("[v] 買入規則總結完成")
         return True
     except Exception as e:
-        print(f"✗ 買入規則總結失敗: {e}")
+        print(f"[x] 買入規則總結失敗: {e}")
         return False
 
 def main():
@@ -117,7 +117,7 @@ def main():
         if step_func():
             success_steps += 1
         else:
-            print(f"\n⚠️  步驟 '{step_name}' 執行失敗，但繼續執行後續步驟...")
+            print(f"\n[!]  步驟 '{step_name}' 執行失敗，但繼續執行後續步驟...")
     
     # 執行結果總結
     end_time = time.time()
@@ -129,14 +129,14 @@ def main():
     print(f"成功步驟: {success_steps}/{len(steps)}")
     
     if success_steps == len(steps):
-        print("🎉 所有步驟執行成功！")
+        print("[v] 所有步驟執行成功！")
         print("\n輸出文件位置:")
         print("- K線數據: Data/kbar/")
         print("- 規則驗證結果: output/buy_rules/")
         print("- K線圖表: output/chart/")
         print("- 規則總結: output/buy_rules_summary.csv")
     else:
-        print("⚠️  部分步驟執行失敗，請檢查錯誤信息")
+        print("[!]  部分步驟執行失敗，請檢查錯誤信息")
     
     print(f"結束時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*80)

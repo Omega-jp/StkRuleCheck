@@ -2,13 +2,17 @@ import shioaji as sj
 import os
 import pandas as pd
 from datetime import datetime, timedelta
+import shioaji as sj 
+import os
+import pandas as pd
+from datetime import datetime, timedelta
 import time
 from dotenv import load_dotenv
 
 # 載入環境變數
 load_dotenv()
 
-def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, retry_delay=5):
+def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, retry_delay=5, api=None):
     """獲取指定股票的K線數據
     
     Args:
@@ -17,23 +21,29 @@ def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, ret
         end_date (datetime, optional): 結束日期。如果未指定，默認為當前日期
         max_retries (int): 最大重試次數
         retry_delay (int): 重試延遲秒數
+        api (shioaji.Shioaji, optional): 已經登入的 API 物件。若未提供，則函數內會自行建立並登入/登出。
     """
+    local_api = False
+    if api is None:
+        local_api = True
+
     for attempt in range(max_retries):
         try:
-            api = sj.Shioaji(simulation=True)
-            
-            userdata = {
-                'APIKey': os.getenv('SHIOAJI_API_KEY'),
-                'SecretKey': os.getenv('SHIOAJI_SECRET_KEY')
-            }
-            
-            if not userdata['APIKey'] or not userdata['SecretKey']:
-                raise ValueError("API金鑰未設置，請檢查.env文件")
-            
-            api.login(
-                api_key=str(userdata["APIKey"]),
-                secret_key=str(userdata['SecretKey'])
-            )
+            if local_api:
+                api = sj.Shioaji(simulation=True)
+                
+                userdata = {
+                    'APIKey': os.getenv('SHIOAJI_API_KEY'),
+                    'SecretKey': os.getenv('SHIOAJI_SECRET_KEY')
+                }
+                
+                if not userdata['APIKey'] or not userdata['SecretKey']:
+                    raise ValueError("API金鑰未設置，請檢查.env文件")
+                
+                api.login(
+                    api_key=str(userdata["APIKey"]),
+                    secret_key=str(userdata['SecretKey'])
+                )
             
             # 設置日期範圍
             if end_date is None:
@@ -50,17 +60,62 @@ def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, ret
             df.ts = pd.to_datetime(df.ts)
             df.set_index('ts', inplace=True)
             
-            api.logout()
+            if local_api:
+                api.logout()
             return df
             
         except Exception as e:
             print(f"第{attempt + 1}次嘗試失敗：{str(e)}")
+            if local_api:
+                try:
+                    api.logout()
+                except:
+                    pass
+            
             if attempt < max_retries - 1:
                 print(f"等待{retry_delay}秒後重試...")
                 time.sleep(retry_delay)
             else:
                 print("已達到最大重試次數，無法獲取數據")
                 return None
+
+def check_market_open(api, date):
+    """檢查指定日期市場是否開盤 (使用加權指數 001 判斷)
+    
+    Args:
+        api (shioaji.Shioaji): 已登入的 API 物件
+        date (datetime or date): 要檢查的日期
+    
+    Returns:
+        bool: True 表示有數據(可能開盤)，False 表示無數據(休市)
+    """
+    try:
+        # 尋找加權指數 TAIEX (代碼通常為 '001')
+        # 在 Shioaji 中，指數合約通常在 api.Contracts.Indexs 下
+        taiex = None
+        for category in api.Contracts.Indexs:
+            for contract in category:
+                 if contract.code == '001':
+                     taiex = contract
+                     break
+            if taiex: break
+        
+        if not taiex:
+            print("警告：無法找到加權指數(001)合約，無法確認市場狀態，預設為開盤。")
+            return True
+
+        date_str = date.strftime('%Y-%m-%d')
+        kbars = api.kbars(taiex, start=date_str, end=date_str)
+        
+        # 檢查是否有數據
+        if kbars and hasattr(kbars, 'ts') and len(kbars.ts) > 0:
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        print(f"檢查市場狀態時發生錯誤：{e}，預設為開盤。")
+        return True
 
 def process_kbars(df):
     """處理K線數據，生成日K線和週K線

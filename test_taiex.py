@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 load_dotenv()
 
-api = sj.Shioaji(simulation=True)
+api = sj.Shioaji(simulation=False)
 api.login(
     api_key=os.getenv('SHIOAJI_API_KEY'),
     secret_key=os.getenv('SHIOAJI_SECRET_KEY')
@@ -32,7 +32,7 @@ try:
     # Let's try to get '001' from Stocks first just in case
     try:
         contract = api.Contracts.Stocks['001']
-        print(f"Found Stock 001: {contract}")
+        print(f"Found Stock 001: {contract.code if contract else 'None'}")
     except:
         print("Stock 001 not found")
 
@@ -46,14 +46,14 @@ try:
             for contract in category:
                  if contract.code == '001':
                      taiex = contract
-                     print(f"Found Index 001: {contract}")
+                     print(f"Found Index 001: {contract.code}")
                      break
             if taiex: break
             
         if taiex:
             print("Fetching Kbar for TAIEX...")
             kbars = api.kbars(taiex, 
-                              start=datetime.now().strftime('%Y-%m-%d'), 
+                              start=(datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'), 
                               end=datetime.now().strftime('%Y-%m-%d'))
             print(f"Kbars: {len(kbars.ts) if kbars and hasattr(kbars, 'ts') else 'None'}")
     except Exception as e:

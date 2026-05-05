@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 import shioaji as sj
 from src.data_initial.kbar_downloader import get_stock_kbars, process_kbars, check_market_open
 
+def get_taiwan_time():
+    return datetime.utcnow() + timedelta(hours=8)
+
 MARKET_OPEN_HOUR = 9
 MARKET_OPEN_MINUTE = 0
 MARKET_CLOSE_HOUR = 13
@@ -168,7 +171,7 @@ def collect_and_save_kbars():
     print("API 登入成功，開始檢查市場狀態...")
 
     # --- Market Status Check ---
-    today_date = datetime.now().date()
+    today_date = get_taiwan_time().date()
     market_open = check_market_open(api, today_date)
     
     if not market_open:
@@ -186,7 +189,7 @@ def collect_and_save_kbars():
             raw_file = os.path.join(data_output_dir, f"{stock_id}_Raw.csv")
             
             start_date = None
-            end_date = datetime.now()
+            end_date = get_taiwan_time()
             
             # If market is closed today, we shouldn't try to fetch *strictly* today's data if checking "today".
             # However, the logic below handles "updating to today". 

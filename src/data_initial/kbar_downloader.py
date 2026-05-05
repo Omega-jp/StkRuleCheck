@@ -47,7 +47,7 @@ def get_stock_kbars(stock_id, start_date=None, end_date=None, max_retries=3, ret
             
             # 設置日期範圍
             if end_date is None:
-                end_date = datetime.now()
+                end_date = datetime.utcnow() + timedelta(hours=8)
             if start_date is None:
                 start_date = end_date - timedelta(days=540)
             
